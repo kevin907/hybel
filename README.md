@@ -236,7 +236,3 @@ See [.env.example](.env.example) for all available configuration options.
 - **Per-user ReadState with denormalized unread_count** — avoids expensive COUNT queries on every inbox load
 - **Delegation as a separate model** — composes cleanly with multi-participant; one delegated user per conversation, independent of participants
 - **Session-based authentication** — simple, stateful, appropriate for same-origin deployment
-
-## License
-
-Proprietary. All rights reserved.
