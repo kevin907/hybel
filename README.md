@@ -2,8 +2,6 @@
 
 A multi-participant messaging system for landlord-tenant communication, built as part of the [Hybel](https://hybel.no) rent management platform.
 
-![Hybel Messaging](images/preview.webp)
-
 ## Overview
 
 Hybel connects landlords with tenants across Scandinavia. This project upgrades the existing messaging system to support:
@@ -230,15 +228,6 @@ See [.env.example](.env.example) for all available configuration options.
 | `backend` | 8000 | Django + Daphne (ASGI) |
 | `frontend` | 3000 | Next.js (Turbopack dev server) |
 
-## Implementation Phases
-
-| Phase | Focus | Status |
-|-------|-------|--------|
-| Phase 1 | Multi-participant data model + core messaging | Complete |
-| Phase 2 | Full-text search & filtering | Planned |
-| Phase 3 | Real-time delivery via WebSockets | Planned |
-
-See [.plans/IMPLEMENTATION_PLAN.md](.plans/IMPLEMENTATION_PLAN.md) for the full technical plan.
 
 ## Key Design Decisions
 
