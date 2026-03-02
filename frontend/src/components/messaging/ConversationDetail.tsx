@@ -23,8 +23,10 @@ export default function ConversationDetail({ conversationId }: Props) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const { setMessages, messages, prependMessages, setActiveConversation } =
-    useMessagingStore();
+  const setMessages = useMessagingStore((s) => s.setMessages);
+  const messages = useMessagingStore((s) => s.messages);
+  const prependMessages = useMessagingStore((s) => s.prependMessages);
+  const setActiveConversation = useMessagingStore((s) => s.setActiveConversation);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
@@ -101,9 +103,23 @@ export default function ConversationDetail({ conversationId }: Props) {
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
 
-  // Auto-scroll when new messages arrive
+  // Track if user is near bottom (for auto-scroll decision)
+  const wasAtBottomRef = useRef(true);
   useEffect(() => {
-    if (messages.length > 0) {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      const threshold = 100;
+      wasAtBottomRef.current =
+        container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+    };
+    container.addEventListener("scroll", handleScroll);
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  // Auto-scroll only if user was already at bottom
+  useEffect(() => {
+    if (messages.length > 0 && wasAtBottomRef.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages.length]);

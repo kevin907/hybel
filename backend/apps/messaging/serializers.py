@@ -104,19 +104,28 @@ class ConversationListSerializer(serializers.ModelSerializer[Conversation]):
         except ReadState.DoesNotExist:
             return 0
 
+    @staticmethod
+    def _serialize_last_message(msg: Message) -> dict[str, Any]:
+        """Inline dict construction — avoids UserSerializer overhead per item."""
+        return {
+            "id": str(msg.id),
+            "content": msg.content[:100],
+            "sender": {
+                "id": str(msg.sender_id),
+                "email": msg.sender.email,
+                "first_name": msg.sender.first_name,
+                "last_name": msg.sender.last_name,
+            },
+            "created_at": msg.created_at.isoformat(),
+            "is_internal": msg.is_internal,
+        }
+
     def get_last_message(self, obj: Conversation) -> dict[str, Any] | None:
         # Use batch-fetched messages from context (avoids N+1)
         last_messages = self.context.get("last_messages", {})
         msg_id = getattr(obj, "annotated_last_message_id", None)
         if msg_id and msg_id in last_messages:
-            last = last_messages[msg_id]
-            return {
-                "id": str(last.id),
-                "content": last.content[:100],
-                "sender": UserSerializer(last.sender).data,
-                "created_at": last.created_at.isoformat(),
-                "is_internal": last.is_internal,
-            }
+            return self._serialize_last_message(last_messages[msg_id])
 
         # Fallback for non-list contexts (e.g. detail)
         if msg_id is None:
@@ -129,13 +138,7 @@ class ConversationListSerializer(serializers.ModelSerializer[Conversation]):
             )
             if not last:
                 return None
-            return {
-                "id": str(last.id),
-                "content": last.content[:100],
-                "sender": UserSerializer(last.sender).data,
-                "created_at": last.created_at.isoformat(),
-                "is_internal": last.is_internal,
-            }
+            return self._serialize_last_message(last)
         return None
 
     def get_participants(self, obj: Conversation) -> list[dict[str, Any]]:
@@ -174,7 +177,16 @@ class ConversationDetailSerializer(serializers.ModelSerializer[Conversation]):
         read_only_fields = fields
 
     def get_active_delegation(self, obj: Conversation) -> dict[str, Any] | None:
-        delegation = obj.delegations.filter(is_active=True).first()
+        # Use prefetched active_delegations if available (avoids N+1)
+        delegations = getattr(obj, "active_delegations", None)
+        if delegations is None:
+            delegation = (
+                obj.delegations.filter(is_active=True)
+                .select_related("assigned_to", "assigned_by")
+                .first()
+            )
+        else:
+            delegation = delegations[0] if delegations else None
         if not delegation:
             return None
         return DelegationSerializer(delegation).data

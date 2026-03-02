@@ -242,13 +242,16 @@ def search_messages(
 ) -> QuerySet[Message]:
     filters = filters or {}
 
-    user_conv_ids = ConversationParticipant.objects.filter(user=user, is_active=True).values_list(
+    # Single base queryset for participant lookups (avoids duplicate queries)
+    participant_qs = ConversationParticipant.objects.filter(user=user, is_active=True)
+    user_conv_ids = participant_qs.values_list("conversation_id", flat=True)
+    tenant_conv_ids = participant_qs.filter(side=ParticipantSide.TENANT_SIDE).values_list(
         "conversation_id", flat=True
     )
 
     qs = (
         Message.objects.filter(conversation_id__in=user_conv_ids)
-        .visible_to(user)
+        .exclude(conversation_id__in=tenant_conv_ids, is_internal=True)
         .select_related("sender", "conversation")
     )
 
@@ -282,4 +285,4 @@ def search_messages(
         )
         qs = qs.filter(conversation_id__in=unread_conv_ids)
 
-    return qs  # type: ignore[no-any-return]
+    return qs

@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import type { Message } from "@/types/messaging";
 import { cn, formatMessageTime, formatFileSize } from "@/lib/utils";
 import { getAttachmentDownloadUrl } from "@/lib/api";
@@ -11,7 +12,7 @@ interface Props {
   isOwn: boolean;
 }
 
-export default function MessageBubble({ message, isOwn }: Props) {
+export default memo(function MessageBubble({ message, isOwn }: Props) {
   // System event
   if (message.message_type === "system_event") {
     return (
@@ -107,7 +108,7 @@ export default function MessageBubble({ message, isOwn }: Props) {
       </div>
     </div>
   );
-}
+});
 
 function Attachments({
   message,

@@ -27,6 +27,7 @@ from .models import (
     Attachment,
     Conversation,
     ConversationParticipant,
+    Delegation,
     Message,
     MessageType,
     ReadState,
@@ -37,6 +38,7 @@ from .permissions import (
     get_user_conversations,
     get_visible_messages,
     require_landlord_side,
+    require_participant_landlord_side,
 )
 from .serializers import (
     AddParticipantSerializer,
@@ -58,8 +60,14 @@ def _user(request: Request) -> User:
     return cast(User, request.user)
 
 
+class ConversationCursorPagination(CursorPagination):
+    page_size = 50
+    ordering = "-updated_at"
+
+
 class ConversationViewSet(viewsets.ModelViewSet[Conversation]):
     permission_classes = [IsConversationParticipant]
+    pagination_class = ConversationCursorPagination
 
     def get_queryset(self) -> Any:
         user = _user(self.request)
@@ -88,6 +96,20 @@ class ConversationViewSet(viewsets.ModelViewSet[Conversation]):
                         "user"
                     ),
                     to_attr="active_participants",
+                ),
+            )
+        else:
+            qs = qs.prefetch_related(
+                Prefetch(
+                    "participants",
+                    queryset=ConversationParticipant.objects.select_related("user"),
+                ),
+                Prefetch(
+                    "delegations",
+                    queryset=Delegation.objects.filter(is_active=True).select_related(
+                        "assigned_to", "assigned_by"
+                    ),
+                    to_attr="active_delegations",
                 ),
             )
 
@@ -283,15 +305,15 @@ class MessageViewSet(
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         conversation = self.get_conversation()
-        get_participant_or_deny(_user(request), conversation)
+        participant = get_participant_or_deny(_user(request), conversation)
 
         serializer = CreateMessageSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         is_internal = serializer.validated_data.get("is_internal", False)
         if is_internal:
-            require_landlord_side(
-                _user(request), conversation, "Bare utleiersiden kan sende interne kommentarer."
+            require_participant_landlord_side(
+                participant, "Bare utleiersiden kan sende interne kommentarer."
             )
 
         message_type = MessageType.INTERNAL_COMMENT if is_internal else MessageType.MESSAGE
@@ -378,7 +400,7 @@ def _detect_mime_type(uploaded_file: Any) -> str:
 
     header = uploaded_file.read(2048)
     uploaded_file.seek(0)
-    return magic.from_buffer(header, mime=True)
+    return magic.from_buffer(header, mime=True)  # type: ignore[no-any-return]
 
 
 def _sanitize_content_disposition(filename: str) -> str:

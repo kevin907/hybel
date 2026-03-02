@@ -245,10 +245,15 @@ export interface WSConnectionSync {
   unread_counts: Record<string, number>;
 }
 
+export interface WSPing {
+  type: "ping";
+}
+
 export type WSEvent =
   | WSMessageNew
   | WSReadUpdated
   | WSParticipantChange
   | WSDelegationChange
   | WSTyping
-  | WSConnectionSync;
+  | WSConnectionSync
+  | WSPing;

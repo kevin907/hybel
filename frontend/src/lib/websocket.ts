@@ -132,8 +132,15 @@ class WebSocketManager {
     const store = useMessagingStore.getState();
 
     switch (event.type) {
+      case "ping":
+        // Respond with pong to keep connection alive
+        this.send({ type: "pong" });
+        return;
+
       case "connection.sync":
         store.setUnreadCounts(event.unread_counts);
+        // Notify callback to invalidate conversation list on reconnect
+        this.onEventCallback?.(event);
         break;
 
       case "message.new":

@@ -32,6 +32,12 @@ def require_landlord_side(user: User, conversation: Conversation, message: str) 
         raise PermissionDenied(message)
 
 
+def require_participant_landlord_side(participant: ConversationParticipant, message: str) -> None:
+    """Check landlord side using an already-fetched participant (avoids duplicate query)."""
+    if participant.side != ParticipantSide.LANDLORD_SIDE:
+        raise PermissionDenied(message)
+
+
 def can_see_message(user: User, message: Message) -> bool:
     if not message.is_internal:
         return True
@@ -39,8 +45,8 @@ def can_see_message(user: User, message: Message) -> bool:
 
 
 def get_visible_messages(user: User, conversation: Conversation) -> QuerySet[Message]:
-    get_participant_or_deny(user, conversation)
-    return Message.objects.visible_to(user, conversation)
+    participant = get_participant_or_deny(user, conversation)
+    return Message.objects.visible_to_with_participant(conversation, participant)
 
 
 def get_user_conversations(user: User) -> QuerySet[Conversation]:
@@ -53,7 +59,8 @@ def get_user_conversations(user: User) -> QuerySet[Conversation]:
 class IsConversationParticipant(BasePermission):
     def has_object_permission(self, request: Request, view: APIView, obj: Conversation) -> bool:
         try:
-            get_participant_or_deny(cast(User, request.user), obj)
+            participant = get_participant_or_deny(cast(User, request.user), obj)
+            request._cached_participant = participant
             return True
         except PermissionDenied:
             return False

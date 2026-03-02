@@ -192,6 +192,9 @@ class ReadState(models.Model):
                 name="unique_read_state",
             ),
         ]
+        indexes = [
+            models.Index(fields=["user", "conversation"], name="idx_readstate_user_conv"),
+        ]
 
     def __str__(self) -> str:
         return f"ReadState for {self.user} in {self.conversation}"
@@ -217,6 +220,11 @@ class Delegation(models.Model):
     note = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     assigned_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["conversation", "is_active"], name="idx_delegation_conv_active"),
+        ]
 
     def __str__(self) -> str:
         return f"Delegation to {self.assigned_to} for {self.conversation}"
