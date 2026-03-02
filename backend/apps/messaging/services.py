@@ -46,20 +46,21 @@ def create_conversation(
             property_id=property_id,
         )
 
-        participants = ConversationParticipant.objects.bulk_create([
-            ConversationParticipant(
-                conversation=conv,
-                user_id=p["user_id"],
-                role=p["role"],
-                side=p["side"],
-            )
-            for p in participant_data
-        ])
+        participants = ConversationParticipant.objects.bulk_create(
+            [
+                ConversationParticipant(
+                    conversation=conv,
+                    user_id=p["user_id"],
+                    role=p["role"],
+                    side=p["side"],
+                )
+                for p in participant_data
+            ]
+        )
 
-        ReadState.objects.bulk_create([
-            ReadState(conversation=conv, user_id=p.user_id)
-            for p in participants
-        ])
+        ReadState.objects.bulk_create(
+            [ReadState(conversation=conv, user_id=p.user_id) for p in participants]
+        )
 
         return conv
 

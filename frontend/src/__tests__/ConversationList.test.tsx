@@ -171,6 +171,7 @@ describe("ConversationItem — store-based unread", () => {
 
   it("renders without crash when unreadCounts is undefined", () => {
     // Simulate the exact bug scenario: store hydration not yet complete
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     useMessagingStore.setState({ unreadCounts: undefined as any });
     render(
       <Wrapper>

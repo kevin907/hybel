@@ -220,12 +220,8 @@ class MarkReadSerializer(serializers.Serializer[dict[str, Any]]):
 class SearchQuerySerializer(serializers.Serializer[dict[str, Any]]):
     q = serializers.CharField(required=False, allow_blank=True, default="")
     property = serializers.UUIDField(required=False)
-    status = serializers.ChoiceField(
-        choices=["open", "closed", "archived"], required=False
-    )
-    conversation_type = serializers.ChoiceField(
-        choices=ConversationType.choices, required=False
-    )
+    status = serializers.ChoiceField(choices=["open", "closed", "archived"], required=False)
+    conversation_type = serializers.ChoiceField(choices=ConversationType.choices, required=False)
     has_attachment = serializers.BooleanField(required=False, default=False)
     date_from = serializers.DateTimeField(required=False)
     date_to = serializers.DateTimeField(required=False)

@@ -96,7 +96,7 @@ describe("ConversationItem", () => {
   });
 
   it("shows participant avatars", () => {
-    const { container } = render(
+    render(
       <ConversationItem conversation={makeConversation()} />
     );
     // Should render 2 avatars (ON, KH)

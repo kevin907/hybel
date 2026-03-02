@@ -56,7 +56,9 @@ class TestConversationListAPI:
 class TestConversationListQueryCount:
     """S2.1 — Verify conversation list endpoint is N+1 free."""
 
-    def test_list_query_count_is_constant(self, landlord_client, landlord_user, db, django_assert_max_num_queries):
+    def test_list_query_count_is_constant(
+        self, landlord_client, landlord_user, db, django_assert_max_num_queries
+    ):
         """Query count should not grow linearly with conversation count."""
         for _ in range(10):
             conv = ConversationFactory()
@@ -447,9 +449,7 @@ class TestAttachmentAPI:
         msg = MessageFactory(conversation=conv, sender=tenant_user)
         original_content = b"This is the original file content for roundtrip test."
 
-        upload = SimpleUploadedFile(
-            "roundtrip.txt", original_content, content_type="text/plain"
-        )
+        upload = SimpleUploadedFile("roundtrip.txt", original_content, content_type="text/plain")
         upload_response = tenant_client.post(
             f"/api/conversations/{conv.id}/messages/{msg.id}/attachments/",
             {"file": upload},
@@ -679,7 +679,7 @@ class TestMessagesSinceEndpoint:
         conv, _, _ = conversation_with_participants
         m1 = MessageFactory(conversation=conv, sender=tenant_user, content="Public")
         InternalCommentFactory(conversation=conv, sender=landlord_user, content="Secret")
-        m3 = MessageFactory(conversation=conv, sender=landlord_user, content="Public2")
+        MessageFactory(conversation=conv, sender=landlord_user, content="Public2")
 
         response = tenant_client.get(
             f"/api/conversations/{conv.id}/messages/since/?since_id={m1.id}"
@@ -690,18 +690,12 @@ class TestMessagesSinceEndpoint:
         assert "Secret" not in contents
         assert "Public2" in contents
 
-    def test_missing_since_id_returns_400(
-        self, landlord_client, conversation_with_participants
-    ):
+    def test_missing_since_id_returns_400(self, landlord_client, conversation_with_participants):
         conv, _, _ = conversation_with_participants
-        response = landlord_client.get(
-            f"/api/conversations/{conv.id}/messages/since/"
-        )
+        response = landlord_client.get(f"/api/conversations/{conv.id}/messages/since/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_invalid_since_id_returns_400(
-        self, landlord_client, conversation_with_participants
-    ):
+    def test_invalid_since_id_returns_400(self, landlord_client, conversation_with_participants):
         conv, _, _ = conversation_with_participants
         response = landlord_client.get(
             f"/api/conversations/{conv.id}/messages/since/?since_id=not-a-uuid"

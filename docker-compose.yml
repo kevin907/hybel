@@ -92,7 +92,7 @@ services:
       - ./frontend:/app
       - /app/node_modules
     command: >
-      sh -c "npx tsc --noEmit && npm test -- --no-coverage"
+      sh -c "npx eslint . && npx tsc --noEmit && npm test -- --no-coverage"
     profiles:
       - lint
 
