@@ -66,9 +66,51 @@ class TestWebSocketConnection:
 
         communicator, sync_msg = await connect_user(tenant)
 
-        payload = sync_msg["payload"]
-        assert str(conv.id) in payload["conversations"]
-        assert payload["unread_counts"][str(conv.id)] == 2
+        assert sync_msg["type"] == "connection.sync"
+        assert "version" in sync_msg
+        assert str(conv.id) in sync_msg["conversations"]
+        assert sync_msg["unread_counts"][str(conv.id)] == 2
+
+        await communicator.disconnect()
+
+    async def test_connection_sync_payload_is_flat_not_nested(self):
+        """Bug 1 regression: sync must NOT wrap data in a 'payload' key."""
+        tenant = await make_user(first_name="Tenant", last_name="Flat")
+        landlord = await make_user(first_name="Landlord", last_name="Flat")
+        await make_conversation_with_participants(tenant, landlord)
+
+        communicator, sync_msg = await connect_user(tenant)
+
+        # Must NOT have a nested "payload" key
+        assert "payload" not in sync_msg
+        # Fields must be at top level
+        assert "conversations" in sync_msg
+        assert "unread_counts" in sync_msg
+        assert "version" in sync_msg
+        assert isinstance(sync_msg["conversations"], list)
+        assert isinstance(sync_msg["unread_counts"], dict)
+
+        await communicator.disconnect()
+
+    async def test_connection_sync_version_field_present(self):
+        """Bug 1 regression: sync must include EVENT_VERSION."""
+        from apps.messaging.events import EVENT_VERSION
+
+        tenant = await make_user(first_name="Tenant", last_name="V")
+        communicator, sync_msg = await connect_user(tenant)
+
+        assert sync_msg["version"] == EVENT_VERSION
+
+        await communicator.disconnect()
+
+    async def test_connection_sync_empty_state_for_new_user(self):
+        """A user with no conversations gets empty but valid sync."""
+        user = await make_user(first_name="New", last_name="User")
+        communicator, sync_msg = await connect_user(user)
+
+        assert sync_msg["type"] == "connection.sync"
+        assert sync_msg["conversations"] == []
+        assert sync_msg["unread_counts"] == {}
 
         await communicator.disconnect()
 

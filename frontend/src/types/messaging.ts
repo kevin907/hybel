@@ -60,6 +60,8 @@ export interface Message {
   attachments: Attachment[];
   created_at: string;
   updated_at: string;
+  /** Client-only field for optimistic UI status */
+  _status?: "pending" | "failed";
 }
 
 export interface Delegation {
@@ -142,6 +144,13 @@ export interface PaginatedResponse<T> {
   results: T[];
 }
 
+// DRF CursorPagination (no count field)
+export interface CursorPaginatedResponse<T> {
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
 // ──────────────────────────────────────────────────
 // Request bodies
 // ──────────────────────────────────────────────────
@@ -195,6 +204,9 @@ export interface WSMessageNew {
   message_id: string;
   conversation_id: string;
   sender_id: string;
+  sender_first_name: string;
+  sender_last_name: string;
+  sender_email: string;
   content: string;
   message_type: MessageType;
   is_internal: boolean;

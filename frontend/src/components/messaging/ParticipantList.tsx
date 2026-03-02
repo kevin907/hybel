@@ -40,6 +40,7 @@ export default function ParticipantList({
     <div>
       <button
         onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
         className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700"
       >
         <Icon name="users" size={12} />
@@ -71,7 +72,7 @@ export default function ParticipantList({
                 <p className="truncate text-xs font-medium text-gray-800">
                   {p.user.first_name} {p.user.last_name}
                 </p>
-                <p className="text-[10px] text-gray-400">
+                <p className="text-micro text-gray-400">
                   {getRoleLabelNO(p.role)}
                   {!p.is_active && " · Fjernet"}
                 </p>
@@ -79,7 +80,7 @@ export default function ParticipantList({
               {isLandlordSide && p.is_active && onRemove && (
                 <button
                   onClick={() => onRemove(p.user.id)}
-                  className="text-[10px] text-gray-400 hover:text-red-500"
+                  className="relative text-micro text-gray-400 hover:text-red-500 after:absolute after:-inset-2 after:content-['']"
                 >
                   Fjern
                 </button>
@@ -134,7 +135,7 @@ export default function ParticipantList({
                           setShowAddForm(false);
                         }
                       }}
-                      className="rounded-md bg-blue-500 px-2 py-1 text-[10px] font-medium text-white hover:bg-blue-600"
+                      className="rounded-md bg-blue-500 px-2 py-1 text-micro font-medium text-white hover:bg-blue-600"
                     >
                       Legg til
                     </button>
@@ -143,7 +144,7 @@ export default function ParticipantList({
                         setNewUser(null);
                         setShowAddForm(false);
                       }}
-                      className="rounded-md px-2 py-1 text-[10px] text-gray-500 hover:text-gray-700"
+                      className="rounded-md px-2 py-1 text-micro text-gray-500 hover:text-gray-700"
                     >
                       Avbryt
                     </button>
@@ -152,7 +153,7 @@ export default function ParticipantList({
               ) : (
                 <button
                   onClick={() => setShowAddForm(true)}
-                  className="mt-2 text-[10px] text-blue-500 hover:text-blue-700"
+                  className="relative mt-2 text-micro text-blue-500 hover:text-blue-700 after:absolute after:-inset-2 after:content-['']"
                 >
                   + Legg til deltaker
                 </button>

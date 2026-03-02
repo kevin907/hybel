@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect } from "react";
 import * as api from "@/lib/api";
 import { useMessagingStore } from "@/stores/messaging";
 import { useDebounce } from "@/hooks/useDebounce";
@@ -15,13 +14,12 @@ import SearchFilters, { type FilterValues } from "./SearchFilters";
 import SearchResults from "./SearchResults";
 
 export default function ConversationListPanel() {
-  const { setConversations, conversations, searchQuery, isSearchActive } =
-    useMessagingStore();
+  const { searchQuery, isSearchActive } = useMessagingStore();
   const [filters, setFilters] = useState<FilterValues>({});
 
   const debouncedQuery = useDebounce(searchQuery, 300);
 
-  // Fetch conversation list (normal mode)
+  // Fetch conversation list — React Query cache is the single source of truth
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.conversations,
     queryFn: () => api.getConversations(),
@@ -38,11 +36,7 @@ export default function ConversationListPanel() {
     enabled: isSearchActive || Object.values(filters).some((v) => v !== undefined && v !== false),
   });
 
-  useEffect(() => {
-    if (data?.results) {
-      setConversations(data.results);
-    }
-  }, [data, setConversations]);
+  const conversations = data?.results ?? [];
 
   const showSearch =
     isSearchActive || Object.values(filters).some((v) => v !== undefined && v !== false);

@@ -14,6 +14,7 @@ from apps.messaging.models import (
 
 from .conftest import (
     AttachmentFactory,
+    ConversationFactory,
     InternalCommentFactory,
     MessageFactory,
     ParticipantFactory,
@@ -49,6 +50,42 @@ class TestConversationListAPI:
 
         response = tenant_client.get("/api/conversations/")
         assert response.data["results"][0]["unread_count"] == 3
+
+
+@pytest.mark.django_db
+class TestConversationListQueryCount:
+    """S2.1 — Verify conversation list endpoint is N+1 free."""
+
+    def test_list_query_count_is_constant(self, landlord_client, landlord_user, db, django_assert_max_num_queries):
+        """Query count should not grow linearly with conversation count."""
+        for _ in range(10):
+            conv = ConversationFactory()
+            ParticipantFactory(
+                conversation=conv, user=landlord_user, role="landlord", side="landlord_side"
+            )
+            MessageFactory(conversation=conv, sender=landlord_user)
+            ReadStateFactory(conversation=conv, user=landlord_user)
+
+        # With N+1 fixed, query count should be bounded (not 10x conversations)
+        with django_assert_max_num_queries(15):
+            response = landlord_client.get("/api/conversations/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data["results"]) == 10
+
+    def test_last_message_excludes_internal_for_list(
+        self, tenant_client, conversation_with_participants, landlord_user
+    ):
+        """Tenant should see last public message in list, not internal comment."""
+        conv, _, _ = conversation_with_participants
+        MessageFactory(conversation=conv, sender=landlord_user, content="Public msg")
+        InternalCommentFactory(conversation=conv, sender=landlord_user, content="Secret note")
+
+        response = tenant_client.get("/api/conversations/")
+        last_msg = response.data["results"][0]["last_message"]
+        assert last_msg is not None
+        assert last_msg["is_internal"] is False
+        assert "Public" in last_msg["content"]
 
 
 @pytest.mark.django_db
@@ -344,6 +381,104 @@ class TestAttachmentAPI:
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_non_owner_cannot_upload_to_others_message(
+        self, landlord_client, conversation_with_participants, tenant_user
+    ):
+        """S2.5 — Users can only attach files to their own messages."""
+        conv, _, _ = conversation_with_participants
+        msg = MessageFactory(conversation=conv, sender=tenant_user)
+
+        upload = SimpleUploadedFile("test.pdf", b"content", content_type="application/pdf")
+        response = landlord_client.post(
+            f"/api/conversations/{conv.id}/messages/{msg.id}/attachments/",
+            {"file": upload},
+            format="multipart",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_download_attachment_returns_file_content(
+        self, tenant_client, conversation_with_participants, tenant_user
+    ):
+        """Downloaded file should contain actual content, not be 0 bytes."""
+        conv, _, _ = conversation_with_participants
+        msg = MessageFactory(conversation=conv, sender=tenant_user)
+        att = AttachmentFactory(message=msg, file_type="application/pdf")
+        file_content = b"PDF file content here"
+        att.file.save("testfile.pdf", BytesIO(file_content))
+
+        response = tenant_client.get(f"/api/attachments/{att.id}/download/")
+        assert response.status_code == status.HTTP_200_OK
+        body = b"".join(response.streaming_content)  # type: ignore[union-attr]
+        assert len(body) > 0
+        assert body == file_content
+
+    def test_download_attachment_has_correct_content_type(
+        self, tenant_client, conversation_with_participants, tenant_user
+    ):
+        """Downloaded file should have the correct Content-Type header."""
+        conv, _, _ = conversation_with_participants
+        msg = MessageFactory(conversation=conv, sender=tenant_user)
+        att = AttachmentFactory(message=msg, file_type="application/pdf")
+        att.file.save("invoice.pdf", BytesIO(b"fake pdf"))
+
+        response = tenant_client.get(f"/api/attachments/{att.id}/download/")
+        assert response.status_code == status.HTTP_200_OK
+        assert "application/pdf" in response["Content-Type"]
+
+    def test_download_attachment_has_content_disposition(
+        self, tenant_client, conversation_with_participants, tenant_user
+    ):
+        """Downloaded file should have Content-Disposition: attachment header."""
+        conv, _, _ = conversation_with_participants
+        msg = MessageFactory(conversation=conv, sender=tenant_user)
+        att = AttachmentFactory(message=msg, filename="kvittering.pdf")
+        att.file.save("kvittering.pdf", BytesIO(b"receipt"))
+
+        response = tenant_client.get(f"/api/attachments/{att.id}/download/")
+        assert response.status_code == status.HTTP_200_OK
+        assert "attachment" in response["Content-Disposition"]
+        assert "kvittering.pdf" in response["Content-Disposition"]
+
+    def test_upload_and_download_roundtrip(
+        self, tenant_client, conversation_with_participants, tenant_user
+    ):
+        """Upload a file and download it — content should match byte-for-byte."""
+        conv, _, _ = conversation_with_participants
+        msg = MessageFactory(conversation=conv, sender=tenant_user)
+        original_content = b"This is the original file content for roundtrip test."
+
+        upload = SimpleUploadedFile(
+            "roundtrip.txt", original_content, content_type="text/plain"
+        )
+        upload_response = tenant_client.post(
+            f"/api/conversations/{conv.id}/messages/{msg.id}/attachments/",
+            {"file": upload},
+            format="multipart",
+        )
+        assert upload_response.status_code == status.HTTP_201_CREATED
+        att_id = upload_response.data["id"]
+
+        download_response = tenant_client.get(f"/api/attachments/{att_id}/download/")
+        assert download_response.status_code == status.HTTP_200_OK
+        downloaded = b"".join(download_response.streaming_content)  # type: ignore[union-attr]
+        assert downloaded == original_content
+
+    def test_upload_response_includes_uploaded_at(
+        self, tenant_client, conversation_with_participants, tenant_user
+    ):
+        """Upload response should include uploaded_at for frontend consistency."""
+        conv, _, _ = conversation_with_participants
+        msg = MessageFactory(conversation=conv, sender=tenant_user)
+
+        upload = SimpleUploadedFile("doc.pdf", b"pdf content", content_type="application/pdf")
+        response = tenant_client.post(
+            f"/api/conversations/{conv.id}/messages/{msg.id}/attachments/",
+            {"file": upload},
+            format="multipart",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert "uploaded_at" in response.data
+
 
 @pytest.mark.django_db
 class TestConversationCreateAPIEdgeCases:
@@ -444,3 +579,131 @@ class TestSearchAPIEdgeCases:
 
         response = tenant_client.get("/api/conversations/search/")
         assert response.status_code == status.HTTP_200_OK
+
+    def test_invalid_uuid_for_property_returns_400(self, landlord_client):
+        """S2.4 — Search endpoint validates query parameters."""
+        response = landlord_client.get("/api/conversations/search/?property=not-a-uuid")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_invalid_date_returns_400(self, landlord_client):
+        response = landlord_client.get("/api/conversations/search/?date_from=not-a-date")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_invalid_status_returns_400(self, landlord_client):
+        response = landlord_client.get("/api/conversations/search/?status=invalid_status")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.django_db
+class TestMessageCursorPagination:
+    """S2.3 — Messages use cursor pagination for stable ordering."""
+
+    def test_messages_return_cursor_links(
+        self, landlord_client, conversation_with_participants, landlord_user
+    ):
+        conv, _, _ = conversation_with_participants
+        for _ in range(60):
+            MessageFactory(conversation=conv, sender=landlord_user)
+
+        response = landlord_client.get(f"/api/conversations/{conv.id}/messages/")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data["results"]) == 50
+        # Cursor pagination uses cursor param, not page
+        assert response.data["next"] is not None
+        assert "cursor" in response.data["next"]
+        assert "page" not in response.data["next"]
+        # Cursor pagination does not include count
+        assert "count" not in response.data
+
+    def test_cursor_follows_to_remaining_messages(
+        self, landlord_client, conversation_with_participants, landlord_user
+    ):
+        conv, _, _ = conversation_with_participants
+        for _ in range(60):
+            MessageFactory(conversation=conv, sender=landlord_user)
+
+        page1 = landlord_client.get(f"/api/conversations/{conv.id}/messages/")
+        assert len(page1.data["results"]) == 50
+        assert page1.data["next"] is not None
+
+        # Follow the cursor to get remaining messages
+        page2 = landlord_client.get(page1.data["next"])
+        assert page2.status_code == status.HTTP_200_OK
+        assert len(page2.data["results"]) == 10
+        assert page2.data["next"] is None
+
+    def test_cursor_stable_under_new_inserts(
+        self, landlord_client, conversation_with_participants, landlord_user
+    ):
+        """Fetching page 2 returns same messages even if new messages arrive."""
+        conv, _, _ = conversation_with_participants
+        for _ in range(60):
+            MessageFactory(conversation=conv, sender=landlord_user)
+
+        page1 = landlord_client.get(f"/api/conversations/{conv.id}/messages/")
+        cursor_url = page1.data["next"]
+
+        # Insert new message between pages
+        MessageFactory(conversation=conv, sender=landlord_user, content="NEW_AFTER_CURSOR")
+
+        page2 = landlord_client.get(cursor_url)
+        # page2 should contain older messages, not the newly inserted one
+        contents = [m["content"] for m in page2.data["results"]]
+        assert "NEW_AFTER_CURSOR" not in contents
+
+
+@pytest.mark.django_db
+class TestMessagesSinceEndpoint:
+    """S4.2 — Fetch messages created after a given message ID."""
+
+    def test_returns_only_newer_messages(
+        self, landlord_client, conversation_with_participants, landlord_user
+    ):
+        conv, _, _ = conversation_with_participants
+        m1 = MessageFactory(conversation=conv, sender=landlord_user, content="First")
+        m2 = MessageFactory(conversation=conv, sender=landlord_user, content="Second")
+        m3 = MessageFactory(conversation=conv, sender=landlord_user, content="Third")
+
+        response = landlord_client.get(
+            f"/api/conversations/{conv.id}/messages/since/?since_id={m1.id}"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        ids = [m["id"] for m in response.data]
+        assert str(m1.id) not in ids
+        assert str(m2.id) in ids
+        assert str(m3.id) in ids
+
+    def test_respects_internal_visibility(
+        self, tenant_client, conversation_with_participants, landlord_user, tenant_user
+    ):
+        conv, _, _ = conversation_with_participants
+        m1 = MessageFactory(conversation=conv, sender=tenant_user, content="Public")
+        InternalCommentFactory(conversation=conv, sender=landlord_user, content="Secret")
+        m3 = MessageFactory(conversation=conv, sender=landlord_user, content="Public2")
+
+        response = tenant_client.get(
+            f"/api/conversations/{conv.id}/messages/since/?since_id={m1.id}"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert all(not m["is_internal"] for m in response.data)
+        contents = [m["content"] for m in response.data]
+        assert "Secret" not in contents
+        assert "Public2" in contents
+
+    def test_missing_since_id_returns_400(
+        self, landlord_client, conversation_with_participants
+    ):
+        conv, _, _ = conversation_with_participants
+        response = landlord_client.get(
+            f"/api/conversations/{conv.id}/messages/since/"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_invalid_since_id_returns_400(
+        self, landlord_client, conversation_with_participants
+    ):
+        conv, _, _ = conversation_with_participants
+        response = landlord_client.get(
+            f"/api/conversations/{conv.id}/messages/since/?since_id=not-a-uuid"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

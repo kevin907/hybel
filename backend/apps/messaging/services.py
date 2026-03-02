@@ -46,20 +46,20 @@ def create_conversation(
             property_id=property_id,
         )
 
-        for p in participant_data:
-            ConversationParticipant.objects.create(
+        participants = ConversationParticipant.objects.bulk_create([
+            ConversationParticipant(
                 conversation=conv,
                 user_id=p["user_id"],
                 role=p["role"],
                 side=p["side"],
             )
+            for p in participant_data
+        ])
 
-        participants = ConversationParticipant.objects.filter(conversation=conv)
-        for participant in participants:
-            ReadState.objects.create(
-                conversation=conv,
-                user=participant.user,
-            )
+        ReadState.objects.bulk_create([
+            ReadState(conversation=conv, user_id=p.user_id)
+            for p in participants
+        ])
 
         return conv
 
@@ -169,17 +169,18 @@ def mark_as_read(
     conversation: Conversation,
     last_read_message_id: UUID,
 ) -> ReadState:
-    message = Message.objects.get(id=last_read_message_id, conversation=conversation)
-    read_state, _ = ReadState.objects.get_or_create(
-        conversation=conversation,
-        user=user,
-    )
-    read_state.last_read_at = message.created_at
-    read_state.last_read_message = message
-    read_state.unread_count = 0
-    read_state.save()
+    with transaction.atomic():
+        message = Message.objects.get(id=last_read_message_id, conversation=conversation)
+        read_state, _ = ReadState.objects.get_or_create(
+            conversation=conversation,
+            user=user,
+        )
+        read_state.last_read_at = message.created_at
+        read_state.last_read_message = message
+        read_state.unread_count = 0
+        read_state.save()
 
-    events.broadcast_read_update(user, conversation, 0)
+        transaction.on_commit(lambda: events.broadcast_read_update(user, conversation, 0))
 
     return read_state
 

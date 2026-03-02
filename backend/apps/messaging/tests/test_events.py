@@ -96,6 +96,37 @@ class TestBroadcastNewMessage:
         assert f"user_{participants['manager'].user.id}" in group_names
         assert f"user_{participants['contractor'].user.id}" in group_names
 
+    @patch("apps.messaging.events._send_to_group")
+    def test_broadcast_includes_sender_details(
+        self, mock_send, conversation_with_participants, tenant_user
+    ):
+        """S1.1 — Event payload must include sender_first_name, sender_last_name, sender_email."""
+        conv, _, _ = conversation_with_participants
+        msg = MessageFactory(conversation=conv, sender=tenant_user)
+
+        broadcast_new_message(msg)
+
+        payload = mock_send.call_args[0][1]
+        assert payload["sender_first_name"] == tenant_user.first_name
+        assert payload["sender_last_name"] == tenant_user.last_name
+        assert payload["sender_email"] == tenant_user.email
+
+    @patch("apps.messaging.events._send_to_group")
+    def test_internal_broadcast_includes_sender_details(
+        self, mock_send, multi_participant_conversation
+    ):
+        """S1.1 — Internal comments also include sender details."""
+        conv, participants = multi_participant_conversation
+        landlord = participants["landlord"].user
+        msg = InternalCommentFactory(conversation=conv, sender=landlord)
+
+        broadcast_new_message(msg)
+
+        payload = mock_send.call_args[0][1]
+        assert payload["sender_first_name"] == landlord.first_name
+        assert payload["sender_last_name"] == landlord.last_name
+        assert payload["sender_email"] == landlord.email
+
 
 @pytest.mark.django_db
 class TestBroadcastReadUpdate:

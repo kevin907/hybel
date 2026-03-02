@@ -49,7 +49,7 @@ export default function SearchFilters({ filters, onChange }: Props) {
         {activeCount > 0 && (
           <button
             onClick={reset}
-            className="text-[10px] text-gray-400 hover:text-gray-600"
+            className="text-micro text-gray-400 hover:text-gray-600"
           >
             Nullstill
           </button>

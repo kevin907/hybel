@@ -105,27 +105,44 @@ class ConversationListSerializer(serializers.ModelSerializer[Conversation]):
             return 0
 
     def get_last_message(self, obj: Conversation) -> dict[str, Any] | None:
-        user = self.context["request"].user
-        last = (
-            Message.objects.visible_to(user, obj)
-            .select_related("sender")
-            .order_by("-created_at")
-            .first()
-        )
+        # Use batch-fetched messages from context (avoids N+1)
+        last_messages = self.context.get("last_messages", {})
+        msg_id = getattr(obj, "annotated_last_message_id", None)
+        if msg_id and msg_id in last_messages:
+            last = last_messages[msg_id]
+            return {
+                "id": str(last.id),
+                "content": last.content[:100],
+                "sender": UserSerializer(last.sender).data,
+                "created_at": last.created_at.isoformat(),
+                "is_internal": last.is_internal,
+            }
 
-        if not last:
-            return None
-
-        return {
-            "id": str(last.id),
-            "content": last.content[:100],
-            "sender": UserSerializer(last.sender).data,
-            "created_at": last.created_at.isoformat(),
-            "is_internal": last.is_internal,
-        }
+        # Fallback for non-list contexts (e.g. detail)
+        if msg_id is None:
+            user = self.context["request"].user
+            last = (
+                Message.objects.visible_to(user, obj)
+                .select_related("sender")
+                .order_by("-created_at")
+                .first()
+            )
+            if not last:
+                return None
+            return {
+                "id": str(last.id),
+                "content": last.content[:100],
+                "sender": UserSerializer(last.sender).data,
+                "created_at": last.created_at.isoformat(),
+                "is_internal": last.is_internal,
+            }
+        return None
 
     def get_participants(self, obj: Conversation) -> list[dict[str, Any]]:
-        # Use prefetched participants (avoids N+1)
+        # Use prefetched active_participants if available (avoids N+1 + Python filtering)
+        participants = getattr(obj, "active_participants", None)
+        if participants is None:
+            participants = [p for p in obj.participants.all() if p.is_active]
         return [
             {
                 "id": str(p.user.id),
@@ -133,8 +150,7 @@ class ConversationListSerializer(serializers.ModelSerializer[Conversation]):
                 "role": p.role,
                 "side": p.side,
             }
-            for p in obj.participants.all()
-            if p.is_active
+            for p in participants
         ]
 
 
@@ -199,6 +215,21 @@ class DelegateSerializer(serializers.Serializer[dict[str, Any]]):
 
 class MarkReadSerializer(serializers.Serializer[dict[str, Any]]):
     last_read_message_id = serializers.UUIDField()
+
+
+class SearchQuerySerializer(serializers.Serializer[dict[str, Any]]):
+    q = serializers.CharField(required=False, allow_blank=True, default="")
+    property = serializers.UUIDField(required=False)
+    status = serializers.ChoiceField(
+        choices=["open", "closed", "archived"], required=False
+    )
+    conversation_type = serializers.ChoiceField(
+        choices=ConversationType.choices, required=False
+    )
+    has_attachment = serializers.BooleanField(required=False, default=False)
+    date_from = serializers.DateTimeField(required=False)
+    date_to = serializers.DateTimeField(required=False)
+    unread_only = serializers.BooleanField(required=False, default=False)
 
 
 class MessageSearchResultSerializer(serializers.ModelSerializer[Message]):

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
-from .events import broadcast_typing
+from .events import EVENT_VERSION, broadcast_typing
 from .models import ConversationParticipant, ReadState
 
 if TYPE_CHECKING:
@@ -43,7 +43,7 @@ class InboxConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         await self.accept()
 
         initial_state = await self._build_sync_state(conversation_ids)
-        await self.send_json({"type": "connection.sync", "payload": initial_state})
+        await self.send_json({"type": "connection.sync", "version": EVENT_VERSION, **initial_state})
 
     async def disconnect(self, code: int) -> None:
         if self.user_group:

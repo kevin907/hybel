@@ -65,7 +65,7 @@ services:
       - "3000:3000"
     environment:
       - BACKEND_URL=http://backend:8000
-      - NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws
+      - NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL:-ws://localhost:8000/ws}
     depends_on:
       - backend
 

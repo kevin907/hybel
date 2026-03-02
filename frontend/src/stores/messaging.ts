@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import type {
-  ConversationListItem,
   Message,
   SendMessageRequest,
 } from "@/types/messaging";
@@ -14,19 +13,13 @@ interface MessagingState {
   activeConversationId: string | null;
   setActiveConversation: (id: string | null) => void;
 
-  // Conversations cache
-  conversations: ConversationListItem[];
-  setConversations: (items: ConversationListItem[]) => void;
-  updateConversation: (
-    id: string,
-    updates: Partial<ConversationListItem>
-  ) => void;
-
   // Messages for active conversation
   messages: Message[];
   setMessages: (msgs: Message[]) => void;
   addMessage: (msg: Message) => void;
   prependMessages: (msgs: Message[]) => void;
+  replaceMessage: (tempId: string, msg: Message) => void;
+  markMessageFailed: (tempId: string) => void;
 
   // Unread counts
   unreadCounts: Record<string, number>;
@@ -54,12 +47,6 @@ interface MessagingState {
   addToOfflineQueue: (msg: OfflineMessage) => void;
   clearOfflineQueue: () => void;
 
-  // Bump conversation to top (optimistic sidebar update)
-  bumpConversation: (
-    conversationId: string,
-    lastMessage: { id: string; content: string; sender_id: string; is_internal: boolean }
-  ) => void;
-
   // Search mode
   searchQuery: string;
   setSearchQuery: (query: string) => void;
@@ -70,16 +57,6 @@ export const useMessagingStore = create<MessagingState>((set, get) => ({
   // Active conversation
   activeConversationId: null,
   setActiveConversation: (id) => set({ activeConversationId: id }),
-
-  // Conversations
-  conversations: [],
-  setConversations: (items) => set({ conversations: items }),
-  updateConversation: (id, updates) =>
-    set((state) => ({
-      conversations: state.conversations.map((c) =>
-        c.id === id ? { ...c, ...updates } : c
-      ),
-    })),
 
   // Messages
   messages: [],
@@ -96,6 +73,18 @@ export const useMessagingStore = create<MessagingState>((set, get) => ({
       const newMsgs = msgs.filter((m) => !existingIds.has(m.id));
       return { messages: [...newMsgs, ...state.messages] };
     }),
+  replaceMessage: (tempId, msg) =>
+    set((state) => ({
+      messages: state.messages
+        .filter((m) => m.id !== msg.id) // Remove any WS-delivered duplicate first
+        .map((m) => (m.id === tempId ? msg : m)),
+    })),
+  markMessageFailed: (tempId) =>
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.id === tempId ? { ...m, _status: "failed" as const } : m
+      ),
+    })),
 
   // Unread counts
   unreadCounts: {},
@@ -133,27 +122,6 @@ export const useMessagingStore = create<MessagingState>((set, get) => ({
   addToOfflineQueue: (msg) =>
     set((state) => ({ offlineQueue: [...state.offlineQueue, msg] })),
   clearOfflineQueue: () => set({ offlineQueue: [] }),
-
-  // Bump conversation to top
-  bumpConversation: (conversationId, lastMessage) =>
-    set((state) => {
-      const idx = state.conversations.findIndex((c) => c.id === conversationId);
-      if (idx === -1) return state;
-      const conv = state.conversations[idx];
-      const updated: ConversationListItem = {
-        ...conv,
-        last_message: {
-          id: lastMessage.id,
-          content: lastMessage.content,
-          sender: { id: lastMessage.sender_id, email: "", first_name: "", last_name: "" },
-          created_at: new Date().toISOString(),
-          is_internal: lastMessage.is_internal,
-        },
-        updated_at: new Date().toISOString(),
-      };
-      const rest = state.conversations.filter((c) => c.id !== conversationId);
-      return { conversations: [updated, ...rest] };
-    }),
 
   // Search
   searchQuery: "",

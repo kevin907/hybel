@@ -4,7 +4,6 @@ describe("MessagingStore", () => {
   beforeEach(() => {
     useMessagingStore.setState({
       activeConversationId: null,
-      conversations: [],
       messages: [],
       unreadCounts: {},
       typingUsers: {},
@@ -89,108 +88,33 @@ describe("MessagingStore", () => {
     expect(useMessagingStore.getState().isSearchActive).toBe(false);
   });
 
-  it("setConversations replaces the list", () => {
+  it("addMessage preserves sender details from WebSocket event", () => {
     const store = useMessagingStore.getState();
-    const convA = {
-      id: "conv-a",
-      subject: "A",
-      conversation_type: "general" as const,
-      status: "open" as const,
-      property: null,
-      unread_count: 0,
-      last_message: null,
-      participants: [],
-      created_at: "2024-01-01T00:00:00Z",
-      updated_at: "2024-01-01T00:00:00Z",
-    };
-    const convB = { ...convA, id: "conv-b", subject: "B" };
+    store.setActiveConversation("conv-1");
 
-    store.setConversations([convA, convB]);
-    expect(useMessagingStore.getState().conversations).toHaveLength(2);
-
-    store.setConversations([convA]);
-    expect(useMessagingStore.getState().conversations).toHaveLength(1);
-    expect(useMessagingStore.getState().conversations[0].id).toBe("conv-a");
-  });
-
-  it("updateConversation patches a conversation", () => {
-    const store = useMessagingStore.getState();
-    const conv = {
-      id: "conv-1",
-      subject: "Original",
-      conversation_type: "general" as const,
-      status: "open" as const,
-      property: null,
-      unread_count: 0,
-      last_message: null,
-      participants: [],
-      created_at: "2024-01-01T00:00:00Z",
-      updated_at: "2024-01-01T00:00:00Z",
-    };
-
-    store.setConversations([conv]);
-    store.updateConversation("conv-1", { subject: "Updated" });
-
-    expect(useMessagingStore.getState().conversations[0].subject).toBe("Updated");
-  });
-
-  it("bumpConversation moves conversation to top with updated last_message", () => {
-    const store = useMessagingStore.getState();
-    const conv1 = {
-      id: "conv-1",
-      subject: "First",
-      conversation_type: "general" as const,
-      status: "open" as const,
-      property: null,
-      unread_count: 0,
-      last_message: null,
-      participants: [],
-      created_at: "2024-01-01T00:00:00Z",
-      updated_at: "2024-01-01T00:00:00Z",
-    };
-    const conv2 = { ...conv1, id: "conv-2", subject: "Second" };
-
-    store.setConversations([conv1, conv2]);
-    store.bumpConversation("conv-2", {
-      id: "msg-new",
-      content: "Ny melding",
-      sender_id: "u-1",
+    const msg = {
+      id: "msg-ws-1",
+      conversation: "conv-1",
+      sender: {
+        id: "user-2",
+        email: "lars@hybel.no",
+        first_name: "Lars",
+        last_name: "Hansen",
+      },
+      content: "Hei!",
+      message_type: "message" as const,
       is_internal: false,
-    });
-
-    const convs = useMessagingStore.getState().conversations;
-    expect(convs[0].id).toBe("conv-2");
-    expect(convs[0].last_message?.content).toBe("Ny melding");
-    expect(convs[1].id).toBe("conv-1");
-  });
-
-  it("bumpConversation is a no-op for unknown id", () => {
-    const store = useMessagingStore.getState();
-    const conv = {
-      id: "conv-1",
-      subject: "Only",
-      conversation_type: "general" as const,
-      status: "open" as const,
-      property: null,
-      unread_count: 0,
-      last_message: null,
-      participants: [],
-      created_at: "2024-01-01T00:00:00Z",
-      updated_at: "2024-01-01T00:00:00Z",
+      attachments: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
 
-    store.setConversations([conv]);
-    store.bumpConversation("nonexistent", {
-      id: "msg-1",
-      content: "test",
-      sender_id: "u-1",
-      is_internal: false,
-    });
-
-    const convs = useMessagingStore.getState().conversations;
-    expect(convs).toHaveLength(1);
-    expect(convs[0].id).toBe("conv-1");
-    expect(convs[0].last_message).toBeNull();
+    store.addMessage(msg);
+    const messages = useMessagingStore.getState().messages;
+    const added = messages.find((m) => m.id === "msg-ws-1");
+    expect(added?.sender.first_name).toBe("Lars");
+    expect(added?.sender.last_name).toBe("Hansen");
+    expect(added?.sender.email).toBe("lars@hybel.no");
   });
 
   it("prepends messages without duplicates", () => {
@@ -207,7 +131,6 @@ describe("MessagingStore", () => {
       updated_at: "2024-01-01T00:00:00Z",
     };
     const msg2 = { ...msg1, id: "msg-2", content: "Second" };
-    const msg3 = { ...msg1, id: "msg-3", content: "Third" };
 
     store.addMessage(msg2);
     store.prependMessages([msg1, msg2]); // msg2 should be deduplicated

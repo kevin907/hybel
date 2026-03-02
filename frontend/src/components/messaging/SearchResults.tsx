@@ -22,7 +22,7 @@ export default function SearchResults({ results, totalCount }: Props) {
 
   return (
     <div>
-      <p className="px-4 py-2 text-[10px] text-gray-400">
+      <p className="px-4 py-2 text-micro text-gray-400">
         {totalCount} treff
       </p>
       {results.map((result) => (
@@ -36,7 +36,7 @@ export default function SearchResults({ results, totalCount }: Props) {
             <span className="truncate text-xs font-medium text-gray-800">
               {result.conversation_subject || "Samtale"}
             </span>
-            <span className="shrink-0 text-[10px] text-gray-400">
+            <span className="shrink-0 text-micro text-gray-400">
               {formatShortTime(result.created_at)}
             </span>
           </div>
@@ -50,7 +50,7 @@ export default function SearchResults({ results, totalCount }: Props) {
             }}
           />
           {result.is_internal && (
-            <span className="mt-1 inline-flex items-center gap-1 text-[10px] text-amber-600">
+            <span className="mt-1 inline-flex items-center gap-1 text-micro text-amber-600">
               <Icon name="lock" size={8} />
               Intern
             </span>

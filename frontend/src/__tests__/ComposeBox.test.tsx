@@ -2,6 +2,16 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ComposeBox from "@/components/messaging/ComposeBox";
 
+jest.mock("@/lib/auth", () => ({
+  useAuth: () => ({
+    user: { id: "user-1", email: "test@hybel.no", first_name: "Test", last_name: "User" },
+    isLoading: false,
+    isAuthenticated: true,
+    login: jest.fn(),
+    logout: jest.fn(),
+  }),
+}));
+
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false } },
 });
