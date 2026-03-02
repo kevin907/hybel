@@ -122,7 +122,7 @@ export default function UserAutocomplete({
                       <p className="text-xs font-medium text-gray-800">
                         {user.first_name} {user.last_name}
                       </p>
-                      <p className="text-[10px] text-gray-400">{user.email}</p>
+                      <p className="text-micro text-gray-400">{user.email}</p>
                     </div>
                   </button>
                 </li>

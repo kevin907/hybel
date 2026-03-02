@@ -37,11 +37,18 @@ def _get_landlord_side_user_ids(conversation: Conversation) -> list[str]:
     ]
 
 
+EVENT_VERSION = 1
+
+
 def broadcast_new_message(message: Message) -> None:
     payload = {
+        "version": EVENT_VERSION,
         "message_id": str(message.id),
         "conversation_id": str(message.conversation_id),
         "sender_id": str(message.sender_id),
+        "sender_first_name": message.sender.first_name,
+        "sender_last_name": message.sender.last_name,
+        "sender_email": message.sender.email,
         "content": message.content,
         "message_type": message.message_type,
         "is_internal": message.is_internal,
@@ -66,6 +73,7 @@ def broadcast_read_update(user: User, conversation: Conversation, unread_count: 
         f"user_{user.id}",
         {
             "type": "read.updated",
+            "version": EVENT_VERSION,
             "conversation_id": str(conversation.id),
             "unread_count": unread_count,
         },
@@ -77,6 +85,7 @@ def broadcast_participant_change(conversation: Conversation, user: User, action:
         f"conversation_{conversation.id}",
         {
             "type": f"participant.{action}",
+            "version": EVENT_VERSION,
             "conversation_id": str(conversation.id),
             "user_id": str(user.id),
             "user_name": f"{user.first_name} {user.last_name}",
@@ -89,6 +98,7 @@ def broadcast_delegation_change(
 ) -> None:
     payload = {
         "type": f"delegation.{action}",
+        "version": EVENT_VERSION,
         "conversation_id": str(conversation.id),
     }
     if delegation:
@@ -105,6 +115,7 @@ def broadcast_typing(conversation: Conversation, user: User, started: bool) -> N
         f"conversation_{conversation.id}",
         {
             "type": f"typing.{action}",
+            "version": EVENT_VERSION,
             "conversation_id": str(conversation.id),
             "user_id": str(user.id),
             "user_name": f"{user.first_name} {user.last_name}".strip(),

@@ -4,13 +4,15 @@ import os
 from typing import Any, cast
 
 from django.contrib.postgres.search import SearchHeadline, SearchQuery
-from django.db.models import OuterRef, Subquery, Value
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import OuterRef, Prefetch, Subquery, Value
 from django.db.models.functions import Coalesce
-from django.http import HttpResponse
+from django.conf import settings
+from django.http import FileResponse, HttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.pagination import PageNumberPagination
+from rest_framework.pagination import CursorPagination, PageNumberPagination
 from rest_framework.parsers import MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -23,6 +25,7 @@ from . import services
 from .models import (
     Attachment,
     Conversation,
+    ConversationParticipant,
     Message,
     MessageType,
     ReadState,
@@ -36,6 +39,7 @@ from .permissions import (
 )
 from .serializers import (
     AddParticipantSerializer,
+    AttachmentSerializer,
     ConversationDetailSerializer,
     ConversationListSerializer,
     CreateConversationSerializer,
@@ -44,6 +48,7 @@ from .serializers import (
     MarkReadSerializer,
     MessageSearchResultSerializer,
     MessageSerializer,
+    SearchQuerySerializer,
     UpdateConversationSerializer,
 )
 
@@ -61,14 +66,59 @@ class ConversationViewSet(viewsets.ModelViewSet[Conversation]):
 
         if self.action == "list":
             # Annotate unread_count from ReadState to avoid N+1
-            unread_sq = ReadState.objects.filter(conversation=OuterRef("pk"), user=user).values(
-                "unread_count"
-            )[:1]
+            unread_sq = ReadState.objects.filter(
+                conversation=OuterRef("pk"), user=user
+            ).values("unread_count")[:1]
+
+            # Annotate last public message ID (avoids N+1 per-conversation query)
+            last_msg_sq = (
+                Message.objects.filter(
+                    conversation=OuterRef("pk"), is_internal=False
+                )
+                .order_by("-created_at")
+                .values("id")[:1]
+            )
+
             qs = qs.annotate(
-                annotated_unread=Coalesce(Subquery(unread_sq), Value(0))
-            ).prefetch_related("participants__user", "read_states", "messages__sender")
+                annotated_unread=Coalesce(Subquery(unread_sq), Value(0)),
+                annotated_last_message_id=Subquery(last_msg_sq),
+            ).prefetch_related(
+                Prefetch(
+                    "participants",
+                    queryset=ConversationParticipant.objects.filter(
+                        is_active=True
+                    ).select_related("user"),
+                    to_attr="active_participants",
+                ),
+            )
 
         return qs
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        items = page if page is not None else list(queryset)
+
+        # Batch-fetch last messages for all conversations on this page
+        msg_ids = [
+            c.annotated_last_message_id
+            for c in items
+            if getattr(c, "annotated_last_message_id", None)
+        ]
+        last_messages = {}
+        if msg_ids:
+            msgs = Message.objects.filter(id__in=msg_ids).select_related("sender")
+            last_messages = {msg.id: msg for msg in msgs}
+
+        serializer = self.get_serializer(
+            items,
+            many=True,
+            context={**self.get_serializer_context(), "last_messages": last_messages},
+        )
+
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
 
     def get_serializer_class(self) -> type[BaseSerializer[Any]]:
         if self.action == "list":
@@ -209,10 +259,17 @@ class ConversationViewSet(viewsets.ModelViewSet[Conversation]):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class MessageCursorPagination(CursorPagination):
+    page_size = 50
+    ordering = "-created_at"
+    cursor_query_param = "cursor"
+
+
 class MessageViewSet(
     mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet[Message]
 ):
     serializer_class = MessageSerializer
+    pagination_class = MessageCursorPagination
 
     def get_conversation(self) -> Conversation:
         return get_object_or_404(Conversation, id=self.kwargs["conv_id"])
@@ -252,6 +309,40 @@ class MessageViewSet(
         return Response(output.data, status=status.HTTP_201_CREATED)
 
 
+class MessagesSinceView(APIView):
+    """Gap-fill endpoint: fetch messages created after a given message ID."""
+
+    def get(self, request: Request, conv_id: str) -> Response:
+        conversation = get_object_or_404(Conversation, id=conv_id)
+        get_participant_or_deny(_user(request), conversation)
+
+        since_id = request.query_params.get("since_id")
+        if not since_id:
+            return Response(
+                {"detail": "Parameteren 'since_id' er påkrevd."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            since_msg = Message.objects.get(id=since_id, conversation=conversation)
+        except (Message.DoesNotExist, ValueError, DjangoValidationError):
+            return Response(
+                {"detail": "Ugyldig meldings-ID."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        qs = (
+            get_visible_messages(_user(request), conversation)
+            .filter(created_at__gt=since_msg.created_at)
+            .select_related("sender")
+            .prefetch_related("attachments")
+            .order_by("created_at")
+        )
+
+        serializer = MessageSerializer(qs[:200], many=True)
+        return Response(serializer.data)
+
+
 ALLOWED_UPLOAD_EXTENSIONS = {
     ".pdf",
     ".jpg",
@@ -277,6 +368,12 @@ class AttachmentUploadView(APIView):
         get_participant_or_deny(_user(request), conversation)
 
         message = get_object_or_404(Message, id=msg_id, conversation=conversation)
+
+        if message.sender != _user(request):
+            return Response(
+                {"detail": "Du kan bare laste opp vedlegg til dine egne meldinger."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         uploaded_file = request.FILES.get("file")
         if not uploaded_file:
@@ -307,18 +404,13 @@ class AttachmentUploadView(APIView):
         )
 
         return Response(
-            {
-                "id": str(attachment.id),
-                "filename": attachment.filename,
-                "file_type": attachment.file_type,
-                "file_size": attachment.file_size,
-            },
+            AttachmentSerializer(attachment).data,
             status=status.HTTP_201_CREATED,
         )
 
 
 class AttachmentDownloadView(APIView):
-    def get(self, request: Request, pk: str) -> HttpResponse:
+    def get(self, request: Request, pk: str) -> FileResponse | HttpResponse:
         attachment = get_object_or_404(
             Attachment.objects.select_related("message__conversation"), id=pk
         )
@@ -332,31 +424,47 @@ class AttachmentDownloadView(APIView):
                 _user(request), conversation, "Du har ikke tilgang til dette vedlegget."
             )
 
-        response = HttpResponse()
-        response["X-Accel-Redirect"] = f"/protected-media/{attachment.file.name}"
-        response["Content-Type"] = ""
-        response["Content-Disposition"] = f'attachment; filename="{attachment.filename}"'
-        return response
+        # When nginx is configured as reverse proxy, enable USE_ACCEL_REDIRECT
+        # in settings to serve files via X-Accel-Redirect for better performance.
+        if getattr(settings, "USE_ACCEL_REDIRECT", False):
+            response = HttpResponse()
+            response["X-Accel-Redirect"] = f"/protected-media/{attachment.file.name}"
+            response["Content-Type"] = ""
+            response["Content-Disposition"] = (
+                f'attachment; filename="{attachment.filename}"'
+            )
+            return response
+
+        return FileResponse(
+            attachment.file.open("rb"),
+            content_type=attachment.file_type or "application/octet-stream",
+            as_attachment=True,
+            filename=attachment.filename,
+        )
 
 
 class MessageSearchView(APIView):
     def get(self, request: Request) -> Response:
-        query = request.query_params.get("q", "").strip() or None
+        params = SearchQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        validated = params.validated_data
+
+        query = validated.get("q", "").strip() or None
         filters: dict[str, Any] = {}
 
-        if request.query_params.get("property"):
-            filters["property"] = request.query_params["property"]
-        if request.query_params.get("status"):
-            filters["status"] = request.query_params["status"]
-        if request.query_params.get("conversation_type"):
-            filters["conversation_type"] = request.query_params["conversation_type"]
-        if request.query_params.get("has_attachment", "").lower() == "true":
+        if "property" in validated:
+            filters["property"] = validated["property"]
+        if "status" in validated:
+            filters["status"] = validated["status"]
+        if "conversation_type" in validated:
+            filters["conversation_type"] = validated["conversation_type"]
+        if validated.get("has_attachment"):
             filters["has_attachment"] = True
-        if request.query_params.get("date_from"):
-            filters["date_from"] = request.query_params["date_from"]
-        if request.query_params.get("date_to"):
-            filters["date_to"] = request.query_params["date_to"]
-        if request.query_params.get("unread_only", "").lower() == "true":
+        if "date_from" in validated:
+            filters["date_from"] = validated["date_from"]
+        if "date_to" in validated:
+            filters["date_to"] = validated["date_to"]
+        if validated.get("unread_only"):
             filters["unread_only"] = True
 
         qs = services.search_messages(

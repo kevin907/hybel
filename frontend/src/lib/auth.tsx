@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import * as api from "./api";
+import { getWebSocketManager } from "./websocket";
 
 interface AuthUser {
   id: string;
@@ -46,6 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    getWebSocketManager().disconnect();
     await api.logout();
     setUser(null);
   }, []);

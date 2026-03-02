@@ -120,7 +120,6 @@ describe("ConversationItem — store-based unread", () => {
   beforeEach(() => {
     useMessagingStore.setState({
       activeConversationId: null,
-      conversations: [],
       messages: [],
       unreadCounts: {},
       typingUsers: {},

@@ -3,6 +3,7 @@ import type {
   ConversationDetail,
   ConversationListItem,
   CreateConversationRequest,
+  CursorPaginatedResponse,
   DelegateRequest,
   Message,
   AddParticipantRequest,
@@ -100,9 +101,21 @@ export function updateConversation(
 
 export function getMessages(
   conversationId: string,
-  page = 1
-): Promise<PaginatedResponse<Message>> {
-  return request(`/conversations/${conversationId}/messages/?page=${page}`);
+  cursorUrl?: string
+): Promise<CursorPaginatedResponse<Message>> {
+  if (cursorUrl) {
+    // cursorUrl is a full URL from the `next` field — extract the path + query
+    const url = new URL(cursorUrl, window.location.origin);
+    return request(`${url.pathname}${url.search}`);
+  }
+  return request(`/conversations/${conversationId}/messages/`);
+}
+
+export function getMessagesSince(
+  conversationId: string,
+  sinceId: string
+): Promise<Message[]> {
+  return request(`/conversations/${conversationId}/messages/since/?since_id=${sinceId}`);
 }
 
 export function sendMessage(

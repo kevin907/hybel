@@ -48,7 +48,7 @@ export default function Sidebar() {
             className="font-bold"
           />
         ) : (
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-500 text-[10px] font-bold">
+          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-500 text-micro font-bold">
             ?
           </div>
         )}
@@ -76,8 +76,11 @@ export default function Sidebar() {
               <Icon name={item.icon} />
               <span>{item.label}</span>
               {item.label === "Meldinger" && (
-                <span className="ml-auto flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full bg-unread-badge" />
+                <span
+                  className="ml-auto flex items-center gap-1"
+                  aria-label={`${totalUnread} uleste meldinger`}
+                >
+                  <span className="h-2 w-2 rounded-full bg-unread-badge" aria-hidden="true" />
                   <span className="text-xs text-gray-300">{totalUnread}</span>
                 </span>
               )}

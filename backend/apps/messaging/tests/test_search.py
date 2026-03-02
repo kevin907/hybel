@@ -167,6 +167,32 @@ class TestSearchFilters:
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data["results"]) >= 1
 
+    def test_filter_by_date_range_excludes_outside(self, tenant_client, searchable_conversation):
+        """Date range filter returns nothing when range doesn't overlap."""
+        from django.utils import timezone
+
+        far_past = timezone.now() - timezone.timedelta(days=365)
+        response = tenant_client.get(
+            "/api/conversations/search/",
+            {
+                "date_from": (far_past - timezone.timedelta(hours=1)).isoformat(),
+                "date_to": (far_past + timezone.timedelta(hours=1)).isoformat(),
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data["results"]) == 0
+
+    def test_filter_by_date_from_only(self, tenant_client, searchable_conversation):
+        """Using only date_from without date_to is valid."""
+        from django.utils import timezone
+
+        response = tenant_client.get(
+            "/api/conversations/search/",
+            {"date_from": (timezone.now() - timezone.timedelta(hours=1)).isoformat()},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data["results"]) >= 1
+
     def test_combined_filters(self, tenant_client, searchable_conversation, sample_property):
         response = tenant_client.get(
             "/api/conversations/search/",

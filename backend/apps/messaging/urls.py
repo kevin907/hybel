@@ -19,6 +19,11 @@ urlpatterns = [
         name="conversation-messages",
     ),
     path(
+        "conversations/<uuid:conv_id>/messages/since/",
+        views.MessagesSinceView.as_view(),
+        name="messages-since",
+    ),
+    path(
         "conversations/<uuid:conv_id>/messages/<uuid:msg_id>/attachments/",
         views.AttachmentUploadView.as_view(),
         name="message-attachment-upload",

@@ -4,12 +4,16 @@ DEBUG = True
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
+    "https://hybel-messaging.ngrok.app",
 ]
 CORS_ALLOW_CREDENTIALS = True
 
 SESSION_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SAMESITE = "Lax"
-CSRF_TRUSTED_ORIGINS = ["http://localhost:3000"]
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",
+    "https://hybel-messaging.ngrok.app",
+]
 
 INSTALLED_APPS += ["debug_toolbar"]  # noqa: F405
 

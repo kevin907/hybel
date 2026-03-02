@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import Link from "next/link";
 import type { ConversationListItem } from "@/types/messaging";
 import { useMessagingStore } from "@/stores/messaging";
@@ -10,7 +11,7 @@ interface Props {
   conversation: ConversationListItem;
 }
 
-export default function ConversationItem({ conversation }: Props) {
+function ConversationItem({ conversation }: Props) {
   const activeId = useMessagingStore((s) => s.activeConversationId);
   const setActive = useMessagingStore((s) => s.setActiveConversation);
   const storeUnread = useMessagingStore(
@@ -77,7 +78,7 @@ export default function ConversationItem({ conversation }: Props) {
               : "Ingen meldinger ennå"}
           </p>
           {hasUnread && (
-            <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-unread-badge px-1.5 text-[10px] font-bold text-white">
+            <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-unread-badge px-1.5 text-micro font-bold text-white">
               {unreadCount}
             </span>
           )}
@@ -86,3 +87,5 @@ export default function ConversationItem({ conversation }: Props) {
     </Link>
   );
 }
+
+export default memo(ConversationItem);

@@ -64,9 +64,34 @@ class WebSocketManager {
   }
 
   private onOpen(): void {
+    const wasReconnect = this.reconnectAttempts > 0;
     this.reconnectAttempts = 0;
     useMessagingStore.getState().setConnectionStatus("connected");
     this.flushOfflineQueue();
+
+    // Gap-fill: fetch any messages missed during disconnection
+    if (wasReconnect) {
+      this.gapFill();
+    }
+  }
+
+  private async gapFill(): Promise<void> {
+    const store = useMessagingStore.getState();
+    const convId = store.activeConversationId;
+    if (!convId || store.messages.length === 0) return;
+
+    const lastMsg = store.messages[store.messages.length - 1];
+    // Don't gap-fill against optimistic (unsent) messages
+    if (lastMsg._status) return;
+
+    try {
+      const missed = await api.getMessagesSince(convId, lastMsg.id);
+      for (const msg of missed) {
+        store.addMessage(msg);
+      }
+    } catch {
+      // Silently fail — eventual consistency via React Query refetch
+    }
   }
 
   private onMessage(event: MessageEvent): void {
@@ -119,9 +144,9 @@ class WebSocketManager {
             conversation: event.conversation_id,
             sender: {
               id: event.sender_id,
-              email: "",
-              first_name: "",
-              last_name: "",
+              email: event.sender_email,
+              first_name: event.sender_first_name,
+              last_name: event.sender_last_name,
             },
             content: event.content,
             message_type: event.message_type,
@@ -136,14 +161,7 @@ class WebSocketManager {
             store.unreadCounts[event.conversation_id] || 0;
           store.updateUnreadCount(event.conversation_id, current + 1);
         }
-        // Optimistically update sidebar: move conversation to top with new last_message
-        store.bumpConversation(event.conversation_id, {
-          id: event.message_id,
-          content: event.content,
-          sender_id: event.sender_id,
-          is_internal: event.is_internal,
-        });
-        // Notify callback to refresh conversation list (eventual consistency via API)
+        // Notify callback to update React Query cache (single source of truth)
         this.onEventCallback?.(event);
         break;
 

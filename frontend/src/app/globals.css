@@ -11,6 +11,23 @@
   --color-unread-badge: #ef4444;
   --color-primary: #3b82f6;
   --color-primary-dark: #2563eb;
+  --color-success: #15803d;
+  --color-success-light: #f0fdf4;
+  --color-destructive: #b91c1c;
+  --color-destructive-light: #fef2f2;
+  --color-warning: #f59e0b;
+  --color-warning-light: #fffbeb;
+  --color-muted: #6b7280;
+  --font-size-micro: 10px;
+  --font-size-micro--line-height: 14px;
+}
+
+/* Global focus-visible ring for keyboard navigation */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
 }
 
 /* Custom scrollbar for message threads */

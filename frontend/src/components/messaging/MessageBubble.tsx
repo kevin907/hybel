@@ -34,11 +34,11 @@ export default function MessageBubble({ message, isOwn }: Props) {
             <span className="text-xs font-medium text-gray-700">
               {message.sender.first_name} {message.sender.last_name}
             </span>
-            <span className="flex items-center gap-1 text-[10px] text-amber-600">
+            <span className="flex items-center gap-1 text-micro text-amber-600">
               <Icon name="lock" size={10} />
               Intern kommentar
             </span>
-            <span className="text-[10px] text-gray-400">
+            <span className="text-micro text-gray-400">
               {formatMessageTime(message.created_at)}
             </span>
           </div>
@@ -53,12 +53,16 @@ export default function MessageBubble({ message, isOwn }: Props) {
     );
   }
 
+  const isPending = message._status === "pending";
+  const isFailed = message._status === "failed";
+
   // Regular message
   return (
     <div
       className={cn(
         "flex gap-2.5 px-4 py-2",
-        isOwn ? "flex-row-reverse" : ""
+        isOwn ? "flex-row-reverse" : "",
+        isPending && "opacity-60"
       )}
     >
       {!isOwn && (
@@ -79,16 +83,22 @@ export default function MessageBubble({ message, isOwn }: Props) {
               {message.sender.first_name} {message.sender.last_name}
             </span>
           )}
-          <span className="text-[10px] text-gray-400">
-            {formatMessageTime(message.created_at)}
+          <span className="text-micro text-gray-400">
+            {isPending
+              ? "Sender..."
+              : isFailed
+                ? "Sending feilet"
+                : formatMessageTime(message.created_at)}
           </span>
         </div>
         <div
           className={cn(
             "rounded-lg px-3 py-2",
-            isOwn
-              ? "bg-primary text-white"
-              : "bg-white border border-gray-100 text-gray-800"
+            isFailed
+              ? "bg-red-100 border border-red-200 text-red-800"
+              : isOwn
+                ? "bg-primary text-white"
+                : "bg-white border border-gray-100 text-gray-800"
           )}
         >
           <p className="whitespace-pre-wrap text-sm">{message.content}</p>
@@ -125,7 +135,7 @@ function Attachments({
         >
           <Icon name="paperclip" size={12} />
           <span className="truncate">{att.filename}</span>
-          <span className="shrink-0 text-[10px] opacity-60">
+          <span className="shrink-0 text-micro opacity-60">
             {formatFileSize(att.file_size)}
           </span>
         </a>
