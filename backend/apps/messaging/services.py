@@ -87,8 +87,11 @@ def send_message(
             conversation=conversation,
         ).exclude(user=sender)
 
+        # Pre-compute landlord IDs so the same list is reused for both
+        # ReadState filtering and event broadcasting (avoids duplicate query).
+        landlord_user_ids: list[Any] | None = None
         if is_internal:
-            internal_user_ids = (
+            landlord_user_ids = list(
                 ConversationParticipant.objects.filter(
                     conversation=conversation,
                     side=ParticipantSide.LANDLORD_SIDE,
@@ -97,11 +100,14 @@ def send_message(
                 .exclude(user=sender)
                 .values_list("user_id", flat=True)
             )
-            read_state_qs = read_state_qs.filter(user_id__in=internal_user_ids)
+            read_state_qs = read_state_qs.filter(user_id__in=landlord_user_ids)
 
         read_state_qs.update(unread_count=F("unread_count") + 1)
 
-        transaction.on_commit(lambda: events.broadcast_new_message(msg))
+        broadcast_ids = landlord_user_ids
+        transaction.on_commit(
+            lambda: events.broadcast_new_message(msg, landlord_user_ids=broadcast_ids)
+        )
 
         return msg
 

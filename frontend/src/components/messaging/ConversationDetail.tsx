@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import * as api from "@/lib/api";
 import { useMessagingStore } from "@/stores/messaging";
 import { useAuth } from "@/lib/auth";
@@ -63,22 +64,22 @@ export default function ConversationDetail({ conversationId }: Props) {
   const loadOlderMessages = useCallback(async () => {
     if (!nextCursor || loadingOlder) return;
     setLoadingOlder(true);
-    const container = messagesContainerRef.current;
-    const prevScrollHeight = container?.scrollHeight || 0;
     try {
       const older = await api.getMessages(conversationId, nextCursor);
       prependMessages(older.results);
       setNextCursor(older.next);
-      // Preserve scroll position after prepending
-      requestAnimationFrame(() => {
-        if (container) {
-          container.scrollTop = container.scrollHeight - prevScrollHeight;
-        }
-      });
     } finally {
       setLoadingOlder(false);
     }
   }, [nextCursor, loadingOlder, conversationId, prependMessages]);
+
+  // Virtual scrolling for message list
+  const virtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => messagesContainerRef.current,
+    estimateSize: () => 80,
+    overscan: 10,
+  });
 
   // Determine current user's side from participants
   const userSide = conversation?.participants.find(
@@ -117,12 +118,12 @@ export default function ConversationDetail({ conversationId }: Props) {
     return () => container.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Auto-scroll only if user was already at bottom
+  // Auto-scroll to bottom when new messages arrive (only if user was at bottom)
   useEffect(() => {
     if (messages.length > 0 && wasAtBottomRef.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      virtualizer.scrollToIndex(messages.length - 1, { align: "end" });
     }
-  }, [messages.length]);
+  }, [messages.length, virtualizer]);
 
   // IntersectionObserver: mark as read only when bottom sentinel is visible
   useEffect(() => {
@@ -261,13 +262,13 @@ export default function ConversationDetail({ conversationId }: Props) {
         </div>
       </div>
 
-      {/* Messages */}
+      {/* Messages — virtualized for performance with large lists */}
       <div
         ref={messagesContainerRef}
         role="log"
         aria-live="polite"
         aria-label="Meldinger"
-        className="flex-1 overflow-y-auto bg-cream scrollbar-thin py-4"
+        className="flex-1 overflow-y-auto bg-cream scrollbar-thin"
       >
         {messagesLoading ? (
           <div className="flex items-center justify-center py-8">
@@ -278,7 +279,13 @@ export default function ConversationDetail({ conversationId }: Props) {
             Ingen meldinger ennå. Start samtalen!
           </p>
         ) : (
-          <>
+          <div
+            style={{
+              height: `${virtualizer.getTotalSize()}px`,
+              width: "100%",
+              position: "relative",
+            }}
+          >
             {nextCursor && (
               <div className="flex justify-center py-2">
                 <button
@@ -290,14 +297,29 @@ export default function ConversationDetail({ conversationId }: Props) {
                 </button>
               </div>
             )}
-            {messages.map((msg) => (
-              <MessageBubble
-                key={msg.id}
-                message={msg}
-                isOwn={msg.sender.id === user?.id}
-              />
-            ))}
-          </>
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const msg = messages[virtualRow.index];
+              return (
+                <div
+                  key={msg.id}
+                  data-index={virtualRow.index}
+                  ref={virtualizer.measureElement}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <MessageBubble
+                    message={msg}
+                    isOwn={msg.sender.id === user?.id}
+                  />
+                </div>
+              );
+            })}
+          </div>
         )}
         <div ref={messagesEndRef} />
       </div>

@@ -49,11 +49,20 @@ def get_visible_messages(user: User, conversation: Conversation) -> QuerySet[Mes
     return Message.objects.visible_to_with_participant(conversation, participant)
 
 
+def get_cached_participant(
+    request: Request, conversation: Conversation
+) -> ConversationParticipant:
+    """Return the participant cached by IsConversationParticipant, or query the DB."""
+    cached: ConversationParticipant | None = getattr(request, "_cached_participant", None)
+    if cached is not None and cached.conversation_id == conversation.id:
+        return cached
+    return get_participant_or_deny(cast(User, request.user), conversation)
+
+
 def get_user_conversations(user: User) -> QuerySet[Conversation]:
-    conversation_ids = ConversationParticipant.objects.filter(
-        user=user, is_active=True
-    ).values_list("conversation_id", flat=True)
-    return Conversation.objects.filter(id__in=conversation_ids)
+    return Conversation.objects.filter(
+        participants__user=user, participants__is_active=True
+    ).distinct()
 
 
 class IsConversationParticipant(BasePermission):

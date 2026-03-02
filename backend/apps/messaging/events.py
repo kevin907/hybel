@@ -40,7 +40,7 @@ def _get_landlord_side_user_ids(conversation: Conversation) -> list[str]:
 EVENT_VERSION = 1
 
 
-def broadcast_new_message(message: Message) -> None:
+def broadcast_new_message(message: Message, landlord_user_ids: list[Any] | None = None) -> None:
     payload = {
         "version": EVENT_VERSION,
         "message_id": str(message.id),
@@ -55,7 +55,13 @@ def broadcast_new_message(message: Message) -> None:
     }
 
     if message.is_internal:
-        for user_id in _get_landlord_side_user_ids(message.conversation):
+        # Use pre-computed IDs if available to avoid duplicate query
+        user_ids = (
+            [str(uid) for uid in landlord_user_ids]
+            if landlord_user_ids is not None
+            else _get_landlord_side_user_ids(message.conversation)
+        )
+        for user_id in user_ids:
             if str(user_id) != str(message.sender_id):
                 _send_to_group(
                     f"user_{user_id}",

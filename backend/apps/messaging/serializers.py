@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from rest_framework import serializers
@@ -17,6 +18,8 @@ from .models import (
     ParticipantSide,
     ReadState,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AttachmentSerializer(serializers.ModelSerializer[Attachment]):
@@ -97,6 +100,7 @@ class ConversationListSerializer(serializers.ModelSerializer[Conversation]):
         # Use annotated value from queryset (avoids N+1)
         if hasattr(obj, "annotated_unread"):
             return obj.annotated_unread  # type: ignore[no-any-return]
+        logger.warning("ConversationListSerializer.get_unread_count() hit fallback for %s", obj.id)
         user = self.context["request"].user
         try:
             rs = ReadState.objects.get(conversation=obj, user=user)
@@ -127,8 +131,12 @@ class ConversationListSerializer(serializers.ModelSerializer[Conversation]):
         if msg_id and msg_id in last_messages:
             return self._serialize_last_message(last_messages[msg_id])
 
-        # Fallback for non-list contexts (e.g. detail)
+        # Fallback for non-list contexts (e.g. detail) — logs to catch unintended N+1
         if msg_id is None:
+            logger.warning(
+                "ConversationListSerializer.get_last_message() hit fallback for %s",
+                obj.id,
+            )
             user = self.context["request"].user
             last = (
                 Message.objects.visible_to(user, obj)
@@ -145,7 +153,11 @@ class ConversationListSerializer(serializers.ModelSerializer[Conversation]):
         # Use prefetched active_participants if available (avoids N+1 + Python filtering)
         participants = getattr(obj, "active_participants", None)
         if participants is None:
-            participants = [p for p in obj.participants.all() if p.is_active]
+            logger.warning(
+                "ConversationListSerializer.get_participants() hit fallback for %s",
+                obj.id,
+            )
+            participants = list(obj.participants.filter(is_active=True).select_related("user"))
         return [
             {
                 "id": str(p.user.id),

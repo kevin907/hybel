@@ -34,10 +34,10 @@ from .models import (
 )
 from .permissions import (
     IsConversationParticipant,
+    get_cached_participant,
     get_participant_or_deny,
     get_user_conversations,
     get_visible_messages,
-    require_landlord_side,
     require_participant_landlord_side,
 )
 from .serializers import (
@@ -177,6 +177,24 @@ class ConversationViewSet(viewsets.ModelViewSet[Conversation]):
                 content=initial_message,
             )
 
+        # Re-fetch with prefetching to avoid N+1 in serializer
+        conv = (
+            Conversation.objects.prefetch_related(
+                Prefetch(
+                    "participants",
+                    queryset=ConversationParticipant.objects.select_related("user"),
+                ),
+                Prefetch(
+                    "delegations",
+                    queryset=Delegation.objects.filter(is_active=True).select_related(
+                        "assigned_to", "assigned_by"
+                    ),
+                    to_attr="active_delegations",
+                ),
+            )
+            .select_related("property")
+            .get(id=conv.id)
+        )
         output = ConversationDetailSerializer(conv, context={"request": request})
         return Response(output.data, status=status.HTTP_201_CREATED)
 
@@ -194,8 +212,9 @@ class ConversationViewSet(viewsets.ModelViewSet[Conversation]):
     ) -> tuple[Conversation, dict[str, Any]]:
         """Common boilerplate for landlord-side actions."""
         conversation = self.get_object()
-        require_landlord_side(
-            _user(request), conversation, "Bare utleiersiden kan utføre denne handlingen."
+        participant = get_cached_participant(request, conversation)
+        require_participant_landlord_side(
+            participant, "Bare utleiersiden kan utføre denne handlingen."
         )
         data: dict[str, Any] = {}
         if serializer_class:
@@ -305,7 +324,7 @@ class MessageViewSet(
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         conversation = self.get_conversation()
-        participant = get_participant_or_deny(_user(request), conversation)
+        participant = get_cached_participant(self.request, conversation)
 
         serializer = CreateMessageSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -335,6 +354,7 @@ class MessagesSinceView(APIView):
 
     def get(self, request: Request, conv_id: str) -> Response:
         conversation = get_object_or_404(Conversation, id=conv_id)
+        # No permission class caching on APIView
         get_participant_or_deny(_user(request), conversation)
 
         since_id = request.query_params.get("since_id")
@@ -400,7 +420,7 @@ def _detect_mime_type(uploaded_file: Any) -> str:
 
     header = uploaded_file.read(2048)
     uploaded_file.seek(0)
-    return magic.from_buffer(header, mime=True)  # type: ignore[no-any-return]
+    return magic.from_buffer(header, mime=True)
 
 
 def _sanitize_content_disposition(filename: str) -> str:
@@ -474,11 +494,11 @@ class AttachmentDownloadView(APIView):
         message = attachment.message
         conversation = message.conversation
 
-        get_participant_or_deny(_user(request), conversation)
+        participant = get_participant_or_deny(_user(request), conversation)
 
         if message.is_internal:
-            require_landlord_side(
-                _user(request), conversation, "Du har ikke tilgang til dette vedlegget."
+            require_participant_landlord_side(
+                participant, "Du har ikke tilgang til dette vedlegget."
             )
 
         # When nginx is configured as reverse proxy, enable USE_ACCEL_REDIRECT
