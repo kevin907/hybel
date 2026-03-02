@@ -43,7 +43,9 @@ class InboxConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         await self.accept()
 
         initial_state = await self._build_sync_state(conversation_ids)
-        await self.send_json({"type": "connection.sync", "version": EVENT_VERSION, **initial_state})
+        await self.send_json(
+            {"type": "connection.sync", "version": EVENT_VERSION, **initial_state}
+        )
 
     async def disconnect(self, code: int) -> None:
         if self.user_group:

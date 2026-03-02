@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import os
 from typing import Any, cast
+from urllib.parse import quote
 
+from django.conf import settings
 from django.contrib.postgres.search import SearchHeadline, SearchQuery
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import OuterRef, Prefetch, Subquery, Value
 from django.db.models.functions import Coalesce
-from django.conf import settings
 from django.http import FileResponse, HttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, status, viewsets
@@ -66,15 +67,13 @@ class ConversationViewSet(viewsets.ModelViewSet[Conversation]):
 
         if self.action == "list":
             # Annotate unread_count from ReadState to avoid N+1
-            unread_sq = ReadState.objects.filter(
-                conversation=OuterRef("pk"), user=user
-            ).values("unread_count")[:1]
+            unread_sq = ReadState.objects.filter(conversation=OuterRef("pk"), user=user).values(
+                "unread_count"
+            )[:1]
 
             # Annotate last public message ID (avoids N+1 per-conversation query)
             last_msg_sq = (
-                Message.objects.filter(
-                    conversation=OuterRef("pk"), is_internal=False
-                )
+                Message.objects.filter(conversation=OuterRef("pk"), is_internal=False)
                 .order_by("-created_at")
                 .values("id")[:1]
             )
@@ -85,9 +84,9 @@ class ConversationViewSet(viewsets.ModelViewSet[Conversation]):
             ).prefetch_related(
                 Prefetch(
                     "participants",
-                    queryset=ConversationParticipant.objects.filter(
-                        is_active=True
-                    ).select_related("user"),
+                    queryset=ConversationParticipant.objects.filter(is_active=True).select_related(
+                        "user"
+                    ),
                     to_attr="active_participants",
                 ),
             )
@@ -357,7 +356,36 @@ ALLOWED_UPLOAD_EXTENSIONS = {
     ".csv",
     ".txt",
 }
+ALLOWED_MIME_TYPES = {
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "text/csv",
+    "text/plain",
+}
 MAX_UPLOAD_SIZE = 20 * 1024 * 1024  # 20 MB
+
+
+def _detect_mime_type(uploaded_file: Any) -> str:
+    """Detect MIME type from file content using magic bytes."""
+    import magic
+
+    header = uploaded_file.read(2048)
+    uploaded_file.seek(0)
+    return magic.from_buffer(header, mime=True)
+
+
+def _sanitize_content_disposition(filename: str) -> str:
+    """Build a safe Content-Disposition header value with RFC 5987 encoding."""
+    ascii_name = filename.encode("ascii", "replace").decode("ascii").replace('"', "_")
+    utf8_name = quote(filename, safe="")
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{utf8_name}"
 
 
 class AttachmentUploadView(APIView):
@@ -395,11 +423,18 @@ class AttachmentUploadView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        detected_mime = _detect_mime_type(uploaded_file)
+        if detected_mime not in ALLOWED_MIME_TYPES:
+            return Response(
+                {"detail": "Filinnholdet samsvarer ikke med en tillatt filtype."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         attachment = Attachment.objects.create(
             message=message,
             file=uploaded_file,
             filename=uploaded_file.name,
-            file_type=uploaded_file.content_type or "application/octet-stream",
+            file_type=detected_mime,
             file_size=uploaded_file.size,
         )
 
@@ -430,9 +465,7 @@ class AttachmentDownloadView(APIView):
             response = HttpResponse()
             response["X-Accel-Redirect"] = f"/protected-media/{attachment.file.name}"
             response["Content-Type"] = ""
-            response["Content-Disposition"] = (
-                f'attachment; filename="{attachment.filename}"'
-            )
+            response["Content-Disposition"] = _sanitize_content_disposition(attachment.filename)
             return response
 
         return FileResponse(
