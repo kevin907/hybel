@@ -125,6 +125,7 @@ CHANNEL_LAYERS = {
             "hosts": [os.environ.get("REDIS_URL", "redis://localhost:6379/0")],
             "capacity": 1500,
             "expiry": 60,
+            "group_expiry": 3600,
         },
     }
 }

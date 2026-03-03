@@ -127,17 +127,17 @@ class TestMessageBroadcasting:
         landlord_ws, _ = await connect_user(landlord)
 
         channel_layer = get_channel_layer()
-        await channel_layer.group_send(
-            f"conversation_{conv.id}",
-            {
-                "type": "message.new",
-                "message_id": "test-123",
-                "conversation_id": str(conv.id),
-                "sender_id": str(landlord.id),
-                "content": "Heisen er reparert.",
-                "is_internal": False,
-            },
-        )
+        event = {
+            "type": "message.new",
+            "message_id": "test-123",
+            "conversation_id": str(conv.id),
+            "sender_id": str(landlord.id),
+            "content": "Heisen er reparert.",
+            "is_internal": False,
+        }
+        # Messages now arrive via per-user groups
+        await channel_layer.group_send(f"user_{tenant.id}", event)
+        await channel_layer.group_send(f"user_{landlord.id}", event)
 
         tenant_msg = await tenant_ws.receive_json_from(timeout=3)
         assert tenant_msg["type"] == "message.new"
@@ -186,7 +186,7 @@ class TestMessageBroadcasting:
 
         channel_layer = get_channel_layer()
         await channel_layer.group_send(
-            f"conversation_{conv.id}",
+            f"user_{tenant.id}",
             {
                 "type": "message.new",
                 "message_id": "msg-456",
@@ -217,8 +217,9 @@ class TestTypingIndicators:
         landlord_ws, _ = await connect_user(landlord)
 
         channel_layer = get_channel_layer()
+        # Typing events now arrive via per-user groups (sender excluded by broadcast)
         await channel_layer.group_send(
-            f"conversation_{conv.id}",
+            f"user_{landlord.id}",
             {
                 "type": "typing.started",
                 "conversation_id": str(conv.id),
@@ -242,8 +243,9 @@ class TestTypingIndicators:
         landlord_ws, _ = await connect_user(landlord)
 
         channel_layer = get_channel_layer()
+        # Broadcast only sends to non-sender user groups, so only landlord gets it
         await channel_layer.group_send(
-            f"conversation_{conv.id}",
+            f"user_{landlord.id}",
             {
                 "type": "typing.started",
                 "conversation_id": str(conv.id),
@@ -301,8 +303,9 @@ class TestParticipantEvents:
 
         channel_layer = get_channel_layer()
         new_user = await make_user(first_name="New", last_name="Person")
+        # Participant events now arrive via per-user groups
         await channel_layer.group_send(
-            f"conversation_{conv.id}",
+            f"user_{tenant.id}",
             {
                 "type": "participant.added",
                 "conversation_id": str(conv.id),
@@ -325,8 +328,9 @@ class TestParticipantEvents:
         landlord_ws, _ = await connect_user(landlord)
 
         channel_layer = get_channel_layer()
+        # Participant events now arrive via per-user groups
         await channel_layer.group_send(
-            f"conversation_{conv.id}",
+            f"user_{landlord.id}",
             {
                 "type": "participant.removed",
                 "conversation_id": str(conv.id),
@@ -349,11 +353,12 @@ class TestDelegationEvents:
         landlord = await make_user(first_name="Landlord", last_name="B")
         conv = await make_conversation_with_participants(tenant, landlord)
 
-        tenant_ws, _ = await connect_user(tenant)
+        landlord_ws, _ = await connect_user(landlord)
 
         channel_layer = get_channel_layer()
+        # Delegation events now arrive via per-user groups (landlord-side only)
         await channel_layer.group_send(
-            f"conversation_{conv.id}",
+            f"user_{landlord.id}",
             {
                 "type": "delegation.assigned",
                 "conversation_id": str(conv.id),
@@ -362,29 +367,30 @@ class TestDelegationEvents:
             },
         )
 
-        msg = await tenant_ws.receive_json_from(timeout=3)
+        msg = await landlord_ws.receive_json_from(timeout=3)
         assert msg["type"] == "delegation.assigned"
         assert msg["assigned_to_id"] == str(landlord.id)
 
-        await tenant_ws.disconnect()
+        await landlord_ws.disconnect()
 
     async def test_delegation_removed_event(self):
         tenant = await make_user(first_name="Tenant", last_name="A")
         landlord = await make_user(first_name="Landlord", last_name="B")
         conv = await make_conversation_with_participants(tenant, landlord)
 
-        tenant_ws, _ = await connect_user(tenant)
+        landlord_ws, _ = await connect_user(landlord)
 
         channel_layer = get_channel_layer()
+        # Delegation events now arrive via per-user groups (landlord-side only)
         await channel_layer.group_send(
-            f"conversation_{conv.id}",
+            f"user_{landlord.id}",
             {
                 "type": "delegation.removed",
                 "conversation_id": str(conv.id),
             },
         )
 
-        msg = await tenant_ws.receive_json_from(timeout=3)
+        msg = await landlord_ws.receive_json_from(timeout=3)
         assert msg["type"] == "delegation.removed"
 
-        await tenant_ws.disconnect()
+        await landlord_ws.disconnect()

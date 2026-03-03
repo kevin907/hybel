@@ -46,14 +46,16 @@ class TestWSMessageNewContract:
         from apps.messaging.events import broadcast_new_message
 
         conv = ConversationFactory()
-        user = UserFactory()
-        ParticipantFactory(conversation=conv, user=user, side="landlord_side")
-        msg = MessageFactory(conversation=conv, sender=user)
+        sender = UserFactory()
+        recipient = UserFactory()
+        ParticipantFactory(conversation=conv, user=sender, side="landlord_side")
+        ParticipantFactory(conversation=conv, user=recipient, side="tenant_side")
+        msg = MessageFactory(conversation=conv, sender=sender)
 
         broadcast_new_message(msg)
 
         mock_send.assert_called()
-        payload = mock_send.call_args[0][1]
+        payload = mock_send.call_args_list[0][0][1]
         # Backend adds "version" which frontend ignores — acceptable
         payload_keys = set(payload.keys()) - {"version"}
         assert payload_keys == WS_MESSAGE_NEW_REQUIRED
@@ -63,18 +65,22 @@ class TestWSMessageNewContract:
         assert payload["is_internal"] is False
 
     @patch("apps.messaging.events._send_to_group")
-    def test_public_message_sent_to_conversation_group(self, mock_send):
+    def test_public_message_sent_to_user_groups(self, mock_send):
         from apps.messaging.events import broadcast_new_message
 
         conv = ConversationFactory()
-        user = UserFactory()
-        ParticipantFactory(conversation=conv, user=user, side="landlord_side")
-        msg = MessageFactory(conversation=conv, sender=user)
+        sender = UserFactory()
+        recipient = UserFactory()
+        ParticipantFactory(conversation=conv, user=sender, side="landlord_side")
+        ParticipantFactory(conversation=conv, user=recipient, side="tenant_side")
+        msg = MessageFactory(conversation=conv, sender=sender)
 
         broadcast_new_message(msg)
 
-        group_name = mock_send.call_args[0][0]
-        assert group_name == f"conversation_{conv.id}"
+        # Now sends to per-user groups, excluding sender
+        group_names = [c[0][0] for c in mock_send.call_args_list]
+        assert f"user_{recipient.id}" in group_names
+        assert f"user_{sender.id}" not in group_names
 
     @patch("apps.messaging.events._send_to_group")
     def test_internal_message_sent_to_user_groups(self, mock_send):
@@ -167,11 +173,14 @@ class TestWSParticipantChangeContract:
         from apps.messaging.events import broadcast_participant_change
 
         conv = ConversationFactory()
+        existing = UserFactory()
+        ParticipantFactory(conversation=conv, user=existing, side="landlord_side")
         user = UserFactory(first_name="Kari", last_name="Hansen")
 
         broadcast_participant_change(conv, user, "added")
 
-        payload = mock_send.call_args[0][1]
+        mock_send.assert_called()
+        payload = mock_send.call_args_list[0][0][1]
         payload_keys = set(payload.keys()) - {"version"}
         assert payload_keys == WS_PARTICIPANT_CHANGE_REQUIRED
         assert payload["type"] == "participant.added"
@@ -182,25 +191,32 @@ class TestWSParticipantChangeContract:
         from apps.messaging.events import broadcast_participant_change
 
         conv = ConversationFactory()
+        existing = UserFactory()
+        ParticipantFactory(conversation=conv, user=existing, side="landlord_side")
         user = UserFactory(first_name="Per", last_name="Olsen")
 
         broadcast_participant_change(conv, user, "removed")
 
-        payload = mock_send.call_args[0][1]
+        mock_send.assert_called()
+        payload = mock_send.call_args_list[0][0][1]
         assert payload["type"] == "participant.removed"
         assert payload["user_id"] == str(user.id)
 
     @patch("apps.messaging.events._send_to_group")
-    def test_participant_change_sent_to_conversation_group(self, mock_send):
+    def test_participant_change_sent_to_user_groups(self, mock_send):
         from apps.messaging.events import broadcast_participant_change
 
         conv = ConversationFactory()
-        user = UserFactory()
+        existing_user = UserFactory()
+        ParticipantFactory(conversation=conv, user=existing_user, side="landlord_side")
+        new_user = UserFactory()
 
-        broadcast_participant_change(conv, user, "added")
+        broadcast_participant_change(conv, new_user, "added")
 
-        group_name = mock_send.call_args[0][0]
-        assert group_name == f"conversation_{conv.id}"
+        # Now sends to per-user groups for all active participants
+        group_names = [c[0][0] for c in mock_send.call_args_list]
+        assert f"user_{existing_user.id}" in group_names
+        assert all(g.startswith("user_") for g in group_names)
 
 
 # ──────────────────────────────────────────────
@@ -272,10 +288,14 @@ class TestWSTypingContract:
 
         conv = ConversationFactory()
         user = UserFactory(first_name="Ola", last_name="Nordmann")
+        recipient = UserFactory()
+        ParticipantFactory(conversation=conv, user=user, side="landlord_side")
+        ParticipantFactory(conversation=conv, user=recipient, side="tenant_side")
 
         broadcast_typing(conv, user, started=True)
 
-        payload = mock_send.call_args[0][1]
+        mock_send.assert_called()
+        payload = mock_send.call_args_list[0][0][1]
         payload_keys = set(payload.keys()) - {"version"}
         assert payload_keys == WS_TYPING_REQUIRED
         assert payload["type"] == "typing.started"
@@ -287,20 +307,29 @@ class TestWSTypingContract:
 
         conv = ConversationFactory()
         user = UserFactory()
+        recipient = UserFactory()
+        ParticipantFactory(conversation=conv, user=user, side="landlord_side")
+        ParticipantFactory(conversation=conv, user=recipient, side="tenant_side")
 
         broadcast_typing(conv, user, started=False)
 
-        payload = mock_send.call_args[0][1]
+        mock_send.assert_called()
+        payload = mock_send.call_args_list[0][0][1]
         assert payload["type"] == "typing.stopped"
 
     @patch("apps.messaging.events._send_to_group")
-    def test_typing_sent_to_conversation_group(self, mock_send):
+    def test_typing_sent_to_user_groups(self, mock_send):
         from apps.messaging.events import broadcast_typing
 
         conv = ConversationFactory()
-        user = UserFactory()
+        sender = UserFactory()
+        recipient = UserFactory()
+        ParticipantFactory(conversation=conv, user=sender, side="landlord_side")
+        ParticipantFactory(conversation=conv, user=recipient, side="tenant_side")
 
-        broadcast_typing(conv, user, started=True)
+        broadcast_typing(conv, sender, started=True)
 
-        group_name = mock_send.call_args[0][0]
-        assert group_name == f"conversation_{conv.id}"
+        # Now sends to per-user groups, excluding sender
+        group_names = [c[0][0] for c in mock_send.call_args_list]
+        assert f"user_{recipient.id}" in group_names
+        assert f"user_{sender.id}" not in group_names

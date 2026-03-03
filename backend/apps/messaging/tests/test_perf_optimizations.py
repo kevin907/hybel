@@ -377,20 +377,22 @@ class TestBroadcastNewMessagePreComputedIds:
         mock_get_ids.assert_called_once()
 
     @patch("apps.messaging.events._send_to_group")
-    def test_regular_message_ignores_precomputed_ids(
-        self, mock_send, conversation_with_participants, tenant_user
+    def test_regular_message_iterates_all_participants(
+        self, mock_send, conversation_with_participants, tenant_user, landlord_user
     ):
         conv, _, _ = conversation_with_participants
         msg = MessageFactory(conversation=conv, sender=tenant_user)
 
         from apps.messaging.events import broadcast_new_message
 
-        # Even if landlord_user_ids is passed, regular messages go to conversation group
+        # Regular messages iterate all participants via per-user groups (ignores landlord_user_ids)
         broadcast_new_message(msg, landlord_user_ids=[])
 
-        mock_send.assert_called_once()
-        group_name = mock_send.call_args[0][0]
-        assert group_name == f"conversation_{conv.id}"
+        # Should send to per-user groups for all participants except the sender
+        group_names = [call[0][0] for call in mock_send.call_args_list]
+        assert f"user_{landlord_user.id}" in group_names
+        assert f"user_{tenant_user.id}" not in group_names  # sender excluded
+        assert all(g.startswith("user_") for g in group_names)
 
 
 # ---------------------------------------------------------------------------

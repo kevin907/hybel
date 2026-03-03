@@ -182,14 +182,28 @@ def mark_as_read(
             conversation=conversation,
             user=user,
         )
-        read_state.last_read_at = message.created_at
-        read_state.last_read_message = message
-        read_state.unread_count = 0
-        read_state.save()
+        # Atomic UPDATE avoids race with concurrent send_message F("unread_count") + 1
+        ReadState.objects.filter(id=read_state.id).update(
+            last_read_at=message.created_at,
+            last_read_message=message,
+            unread_count=0,
+        )
+        read_state.refresh_from_db()
 
         transaction.on_commit(lambda: events.broadcast_read_update(user, conversation, 0))
 
     return read_state
+
+
+def _get_landlord_user_ids(conversation: Conversation) -> list[Any]:
+    """Pre-compute landlord-side user IDs for event broadcasting."""
+    return list(
+        ConversationParticipant.objects.filter(
+            conversation=conversation,
+            side=ParticipantSide.LANDLORD_SIDE,
+            is_active=True,
+        ).values_list("user_id", flat=True)
+    )
 
 
 def delegate_conversation(
@@ -217,8 +231,11 @@ def delegate_conversation(
             f"Samtalen ble delegert til {assigned_to.first_name} {assigned_to.last_name}.",
         )
 
+        landlord_ids = _get_landlord_user_ids(conversation)
         transaction.on_commit(
-            lambda: events.broadcast_delegation_change(conversation, delegation, "assigned")
+            lambda: events.broadcast_delegation_change(
+                conversation, delegation, "assigned", landlord_user_ids=landlord_ids
+            )
         )
 
         return delegation
@@ -236,8 +253,11 @@ def remove_delegation(
 
         _create_system_message(conversation, removed_by, "Delegering ble fjernet.")
 
+        landlord_ids = _get_landlord_user_ids(conversation)
         transaction.on_commit(
-            lambda: events.broadcast_delegation_change(conversation, None, "removed")
+            lambda: events.broadcast_delegation_change(
+                conversation, None, "removed", landlord_user_ids=landlord_ids
+            )
         )
 
 

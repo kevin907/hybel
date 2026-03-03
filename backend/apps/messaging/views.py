@@ -354,8 +354,7 @@ class MessagesSinceView(APIView):
 
     def get(self, request: Request, conv_id: str) -> Response:
         conversation = get_object_or_404(Conversation, id=conv_id)
-        # No permission class caching on APIView
-        get_participant_or_deny(_user(request), conversation)
+        participant = get_participant_or_deny(_user(request), conversation)
 
         since_id = request.query_params.get("since_id")
         if not since_id:
@@ -372,16 +371,19 @@ class MessagesSinceView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Reuse already-fetched participant to avoid duplicate query
         qs = (
-            get_visible_messages(_user(request), conversation)
+            Message.objects.visible_to_with_participant(conversation, participant)
             .filter(created_at__gt=since_msg.created_at)
             .select_related("sender")
             .prefetch_related("attachments")
             .order_by("created_at")
         )
 
-        serializer = MessageSerializer(qs[:200], many=True)
-        return Response(serializer.data)
+        capped = list(qs[:201])
+        has_more = len(capped) > 200
+        serializer = MessageSerializer(capped[:200], many=True)
+        return Response({"results": serializer.data, "has_more": has_more})
 
 
 ALLOWED_UPLOAD_EXTENSIONS = {

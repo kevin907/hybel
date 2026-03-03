@@ -55,23 +55,27 @@ def broadcast_new_message(message: Message, landlord_user_ids: list[Any] | None 
     }
 
     if message.is_internal:
-        # Use pre-computed IDs if available to avoid duplicate query
+        # Internal: only landlord-side participants (use pre-computed IDs when available)
         user_ids = (
             [str(uid) for uid in landlord_user_ids]
             if landlord_user_ids is not None
             else _get_landlord_side_user_ids(message.conversation)
         )
-        for user_id in user_ids:
-            if str(user_id) != str(message.sender_id):
-                _send_to_group(
-                    f"user_{user_id}",
-                    {"type": "message.new", **payload},
-                )
     else:
-        _send_to_group(
-            f"conversation_{message.conversation_id}",
-            {"type": "message.new", **payload},
-        )
+        # Regular: all active participants via per-user groups (avoids N conversation
+        # group subscriptions per connect — each user subscribes to 1 group only)
+        user_ids = [
+            str(uid)
+            for uid in ConversationParticipant.objects.filter(
+                conversation=message.conversation,
+                is_active=True,
+            ).values_list("user_id", flat=True)
+        ]
+
+    event = {"type": "message.new", **payload}
+    for user_id in user_ids:
+        if str(user_id) != str(message.sender_id):
+            _send_to_group(f"user_{user_id}", event)
 
 
 def broadcast_read_update(user: User, conversation: Conversation, unread_count: int) -> None:
@@ -87,20 +91,27 @@ def broadcast_read_update(user: User, conversation: Conversation, unread_count: 
 
 
 def broadcast_participant_change(conversation: Conversation, user: User, action: str) -> None:
-    _send_to_group(
-        f"conversation_{conversation.id}",
-        {
-            "type": f"participant.{action}",
-            "version": EVENT_VERSION,
-            "conversation_id": str(conversation.id),
-            "user_id": str(user.id),
-            "user_name": f"{user.first_name} {user.last_name}",
-        },
-    )
+    event = {
+        "type": f"participant.{action}",
+        "version": EVENT_VERSION,
+        "conversation_id": str(conversation.id),
+        "user_id": str(user.id),
+        "user_name": f"{user.first_name} {user.last_name}",
+    }
+    # Broadcast via per-user groups to all active participants
+    participant_user_ids = ConversationParticipant.objects.filter(
+        conversation=conversation,
+        is_active=True,
+    ).values_list("user_id", flat=True)
+    for uid in participant_user_ids:
+        _send_to_group(f"user_{uid}", event)
 
 
 def broadcast_delegation_change(
-    conversation: Conversation, delegation: Delegation | None, action: str
+    conversation: Conversation,
+    delegation: Delegation | None,
+    action: str,
+    landlord_user_ids: list[Any] | None = None,
 ) -> None:
     payload = {
         "type": f"delegation.{action}",
@@ -111,19 +122,30 @@ def broadcast_delegation_change(
         payload["assigned_to_id"] = str(delegation.assigned_to_id)
         payload["assigned_by_id"] = str(delegation.assigned_by_id)
 
-    for user_id in _get_landlord_side_user_ids(conversation):
+    # Use pre-computed IDs when available to avoid duplicate query
+    user_ids = (
+        [str(uid) for uid in landlord_user_ids]
+        if landlord_user_ids is not None
+        else _get_landlord_side_user_ids(conversation)
+    )
+    for user_id in user_ids:
         _send_to_group(f"user_{user_id}", payload)
 
 
 def broadcast_typing(conversation: Conversation, user: User, started: bool) -> None:
     action = "started" if started else "stopped"
-    _send_to_group(
-        f"conversation_{conversation.id}",
-        {
-            "type": f"typing.{action}",
-            "version": EVENT_VERSION,
-            "conversation_id": str(conversation.id),
-            "user_id": str(user.id),
-            "user_name": f"{user.first_name} {user.last_name}".strip(),
-        },
-    )
+    event = {
+        "type": f"typing.{action}",
+        "version": EVENT_VERSION,
+        "conversation_id": str(conversation.id),
+        "user_id": str(user.id),
+        "user_name": f"{user.first_name} {user.last_name}".strip(),
+    }
+    # Broadcast via per-user groups (excludes the sender in consumer)
+    participant_user_ids = ConversationParticipant.objects.filter(
+        conversation=conversation,
+        is_active=True,
+    ).values_list("user_id", flat=True)
+    for uid in participant_user_ids:
+        if str(uid) != str(user.id):
+            _send_to_group(f"user_{uid}", event)

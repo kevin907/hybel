@@ -45,7 +45,7 @@ services:
       target: prod
     command: >
       sh -c "./entrypoint.sh &&
-             uvicorn config.asgi:application --host 0.0.0.0 --port 8000 --workers 4 --loop uvloop"
+             uvicorn config.asgi:application --host 0.0.0.0 --port 8000 --workers 4 --loop uvloop --max-requests 10000 --max-requests-jitter 1000"
     volumes:
       - backend_media:/app/media
       - static_files:/app/static

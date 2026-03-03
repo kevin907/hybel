@@ -23,8 +23,8 @@ class InboxConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.user: User | None = None
-        self.conversation_groups: list[str] = []
         self.user_group: str = ""
+        self._active_conversation_ids: set[str] = set()
         self._ping_task: asyncio.Task[None] | None = None
         self._last_typing_broadcast: float = 0
 
@@ -36,19 +36,13 @@ class InboxConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
 
         self.user_group = f"user_{self.user.id}"
 
-        conversation_ids = await self._get_active_conversation_ids()
-        self.conversation_groups = [f"conversation_{cid}" for cid in conversation_ids]
-
-        # Parallelize all group_add calls (avoids sequential Redis round-trips)
-        await asyncio.gather(
-            self.channel_layer.group_add(self.user_group, self.channel_name),
-            *(
-                self.channel_layer.group_add(g, self.channel_name)
-                for g in self.conversation_groups
-            ),
-        )
+        # Single group subscription — all events routed via per-user groups
+        await self.channel_layer.group_add(self.user_group, self.channel_name)
 
         await self.accept()
+
+        conversation_ids = await self._get_active_conversation_ids()
+        self._active_conversation_ids = set(conversation_ids)
 
         initial_state = await self._build_sync_state(conversation_ids)
         await self.send_json(
@@ -66,8 +60,6 @@ class InboxConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
 
         if self.user_group:
             await self.channel_layer.group_discard(self.user_group, self.channel_name)
-        for group in self.conversation_groups:
-            await self.channel_layer.group_discard(group, self.channel_name)
 
     async def receive_json(self, content: dict[str, Any], **kwargs: Any) -> None:
         event_type = content.get("type")
@@ -77,8 +69,7 @@ class InboxConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             return  # Client responded to ping — connection is alive
 
         if event_type in ("typing.start", "typing.stop") and conversation_id:
-            group = f"conversation_{conversation_id}"
-            if group not in self.conversation_groups:
+            if conversation_id not in self._active_conversation_ids:
                 return
 
             # Server-side typing throttle: max 1 typing.start per 2 seconds
@@ -103,20 +94,14 @@ class InboxConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
     async def participant_added(self, event: dict[str, Any]) -> None:
         conv_id = event.get("conversation_id")
         if conv_id:
-            group = f"conversation_{conv_id}"
-            if group not in self.conversation_groups:
-                self.conversation_groups.append(group)
-                await self.channel_layer.group_add(group, self.channel_name)
+            self._active_conversation_ids.add(conv_id)
         await self.send_json(event)
 
     async def participant_removed(self, event: dict[str, Any]) -> None:
         conv_id = event.get("conversation_id")
         user_id = event.get("user_id")
         if user_id and self.user and str(user_id) == str(self.user.id) and conv_id:
-            group = f"conversation_{conv_id}"
-            if group in self.conversation_groups:
-                self.conversation_groups.remove(group)
-                await self.channel_layer.group_discard(group, self.channel_name)
+            self._active_conversation_ids.discard(conv_id)
         await self.send_json(event)
 
     async def delegation_assigned(self, event: dict[str, Any]) -> None:
@@ -126,12 +111,10 @@ class InboxConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         await self.send_json(event)
 
     async def typing_started(self, event: dict[str, Any]) -> None:
-        if not self.user or event.get("user_id") != str(self.user.id):
-            await self.send_json(event)
+        await self.send_json(event)
 
     async def typing_stopped(self, event: dict[str, Any]) -> None:
-        if not self.user or event.get("user_id") != str(self.user.id):
-            await self.send_json(event)
+        await self.send_json(event)
 
     async def _ping_loop(self) -> None:
         """Send periodic pings to detect dead connections."""

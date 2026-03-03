@@ -239,16 +239,16 @@ class TestInternalCommentIsolation:
             f"/api/conversations/{conv.id}/messages/since/?since_id={m1.id}"
         )
         assert tenant_resp.status_code == status.HTTP_200_OK
-        contents = [m["content"] for m in tenant_resp.data]
+        contents = [m["content"] for m in tenant_resp.data["results"]]
         assert "Intern merknad om leietaker." not in contents
         assert "Offentlig svar." in contents
-        assert all(not m["is_internal"] for m in tenant_resp.data)
+        assert all(not m["is_internal"] for m in tenant_resp.data["results"])
 
         # Landlord gap-fills from m1 — should see the internal comment
         landlord_resp = landlord_client.get(
             f"/api/conversations/{conv.id}/messages/since/?since_id={m1.id}"
         )
-        landlord_contents = [m["content"] for m in landlord_resp.data]
+        landlord_contents = [m["content"] for m in landlord_resp.data["results"]]
         assert "Intern merknad om leietaker." in landlord_contents
         assert "Offentlig svar." in landlord_contents
 
@@ -296,7 +296,7 @@ class TestGapFill:
             f"/api/conversations/{conv.id}/messages/since/?since_id={m1.id}"
         )
         assert resp.status_code == status.HTTP_200_OK
-        ids = [m["id"] for m in resp.data]
+        ids = [m["id"] for m in resp.data["results"]]
         assert str(m1.id) not in ids
         assert str(m2.id) in ids
         assert str(m3.id) in ids
@@ -315,7 +315,7 @@ class TestGapFill:
             f"/api/conversations/{conv.id}/messages/since/?since_id={m1.id}"
         )
         assert resp.status_code == status.HTTP_200_OK
-        assert len(resp.data) == 0
+        assert len(resp.data["results"]) == 0
 
     def test_gap_fill_returns_messages_in_chronological_order(
         self,
@@ -333,7 +333,7 @@ class TestGapFill:
             f"/api/conversations/{conv.id}/messages/since/?since_id={m1.id}"
         )
         assert resp.status_code == status.HTTP_200_OK
-        contents = [m["content"] for m in resp.data]
+        contents = [m["content"] for m in resp.data["results"]]
         assert contents == ["Andre", "Tredje"]
 
     def test_gap_fill_after_send_includes_new_message(
@@ -362,7 +362,7 @@ class TestGapFill:
             f"/api/conversations/{conv.id}/messages/since/?since_id={baseline.id}"
         )
         assert gap_resp.status_code == status.HTTP_200_OK
-        contents = [m["content"] for m in gap_resp.data]
+        contents = [m["content"] for m in gap_resp.data["results"]]
         assert "Ny melding fra leietaker." in contents
 
 
