@@ -668,7 +668,7 @@ class TestMessagesSinceEndpoint:
             f"/api/conversations/{conv.id}/messages/since/?since_id={m1.id}"
         )
         assert response.status_code == status.HTTP_200_OK
-        ids = [m["id"] for m in response.data]
+        ids = [m["id"] for m in response.data["results"]]
         assert str(m1.id) not in ids
         assert str(m2.id) in ids
         assert str(m3.id) in ids
@@ -685,8 +685,8 @@ class TestMessagesSinceEndpoint:
             f"/api/conversations/{conv.id}/messages/since/?since_id={m1.id}"
         )
         assert response.status_code == status.HTTP_200_OK
-        assert all(not m["is_internal"] for m in response.data)
-        contents = [m["content"] for m in response.data]
+        assert all(not m["is_internal"] for m in response.data["results"])
+        contents = [m["content"] for m in response.data["results"]]
         assert "Secret" not in contents
         assert "Public2" in contents
 

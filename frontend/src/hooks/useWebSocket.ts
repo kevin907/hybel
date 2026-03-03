@@ -1,9 +1,10 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getWebSocketManager } from "@/lib/websocket";
+import { useMessagingStore } from "@/stores/messaging";
 import type {
   ConversationListItem,
-  PaginatedResponse,
+  CursorPaginatedResponse,
   WSEvent,
   WSMessageNew,
 } from "@/types/messaging";
@@ -17,7 +18,7 @@ function bumpConversationInCache(
   queryClient: ReturnType<typeof useQueryClient>,
   event: WSMessageNew
 ): void {
-  queryClient.setQueryData<PaginatedResponse<ConversationListItem>>(
+  queryClient.setQueryData<CursorPaginatedResponse<ConversationListItem>>(
     queryKeys.conversations,
     (old) => {
       if (!old) return old;
@@ -62,12 +63,15 @@ export function useWebSocket(enabled = true) {
         case "message.new":
           // Optimistically bump the conversation to the top of the list
           bumpConversationInCache(queryClient, event);
-          // Also invalidate to get fresh data from server eventually
-          queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
+          // Only invalidate messages for non-active conversations
+          // (active conversation gets WS updates directly via the store)
           if (event.conversation_id) {
-            queryClient.invalidateQueries({
-              queryKey: queryKeys.messages(event.conversation_id),
-            });
+            const activeId = useMessagingStore.getState().activeConversationId;
+            if (event.conversation_id !== activeId) {
+              queryClient.invalidateQueries({
+                queryKey: queryKeys.messages(event.conversation_id),
+              });
+            }
           }
           break;
 
@@ -84,6 +88,11 @@ export function useWebSocket(enabled = true) {
           break;
 
         case "read.updated":
+          // No aggressive invalidation — unread count update is handled by the store
+          break;
+
+        case "connection.sync":
+          // Force refresh conversation list on reconnect to pick up missed messages
           queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
           break;
       }

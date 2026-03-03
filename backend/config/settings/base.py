@@ -65,9 +65,13 @@ WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
 DATABASES = {
-    "default": dj_database_url.config(
-        default="postgres://hybel:hybel_dev_password@localhost:5432/hybel"
-    )
+    "default": {
+        **dj_database_url.config(
+            default="postgres://hybel:hybel_dev_password@localhost:5432/hybel"
+        ),
+        "CONN_MAX_AGE": 600,
+        "CONN_HEALTH_CHECKS": True,
+    }
 }
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -119,6 +123,9 @@ CHANNEL_LAYERS = {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
             "hosts": [os.environ.get("REDIS_URL", "redis://localhost:6379/0")],
+            "capacity": 1500,
+            "expiry": 60,
+            "group_expiry": 3600,
         },
     }
 }

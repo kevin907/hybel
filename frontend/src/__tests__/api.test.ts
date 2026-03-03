@@ -86,26 +86,26 @@ describe("api module", () => {
   describe("getConversations()", () => {
     it("calls the correct URL", async () => {
       const fetchFn = mockFetch({
-        json: () => Promise.resolve({ results: [], count: 0 }),
+        json: () => Promise.resolve({ results: [], next: null, previous: null }),
       });
       const api = await getApi();
       await api.getConversations();
 
       expect(fetchFn).toHaveBeenCalledWith(
-        "/api/conversations/?page=1",
+        "/api/conversations/",
         expect.any(Object)
       );
     });
 
-    it("passes page parameter", async () => {
+    it("passes cursor URL for next page", async () => {
       const fetchFn = mockFetch({
-        json: () => Promise.resolve({ results: [], count: 0 }),
+        json: () => Promise.resolve({ results: [], next: null, previous: null }),
       });
       const api = await getApi();
-      await api.getConversations(3);
+      await api.getConversations("http://localhost/api/conversations/?cursor=abc123");
 
       expect(fetchFn).toHaveBeenCalledWith(
-        "/api/conversations/?page=3",
+        "/api/conversations/?cursor=abc123",
         expect.any(Object)
       );
     });

@@ -69,17 +69,19 @@ class TestGetLandlordSideUserIds:
 @pytest.mark.django_db
 class TestBroadcastNewMessage:
     @patch("apps.messaging.events._send_to_group")
-    def test_regular_message_sends_to_conversation_group(
-        self, mock_send, conversation_with_participants, tenant_user
+    def test_regular_message_sends_to_user_groups(
+        self, mock_send, conversation_with_participants, tenant_user, landlord_user
     ):
         conv, _, _ = conversation_with_participants
         msg = MessageFactory(conversation=conv, sender=tenant_user)
 
         broadcast_new_message(msg)
 
-        mock_send.assert_called_once()
-        group_name = mock_send.call_args[0][0]
-        assert group_name == f"conversation_{conv.id}"
+        # Regular messages now iterate participants and send to user_{id} groups
+        # excluding the sender
+        group_names = [call[0][0] for call in mock_send.call_args_list]
+        assert f"user_{landlord_user.id}" in group_names
+        assert f"user_{tenant_user.id}" not in group_names  # sender excluded
 
     @patch("apps.messaging.events._send_to_group")
     def test_internal_message_sends_to_user_groups(
@@ -106,7 +108,9 @@ class TestBroadcastNewMessage:
 
         broadcast_new_message(msg)
 
-        payload = mock_send.call_args[0][1]
+        mock_send.assert_called()
+        # Check the payload of the first call (all calls get the same payload)
+        payload = mock_send.call_args_list[0][0][1]
         assert payload["sender_first_name"] == tenant_user.first_name
         assert payload["sender_last_name"] == tenant_user.last_name
         assert payload["sender_email"] == tenant_user.email
@@ -146,23 +150,37 @@ class TestBroadcastReadUpdate:
 @pytest.mark.django_db
 class TestBroadcastParticipantChange:
     @patch("apps.messaging.events._send_to_group")
-    def test_sends_added_event(self, mock_send, conversation_with_participants):
+    def test_sends_added_event(
+        self, mock_send, conversation_with_participants, tenant_user, landlord_user
+    ):
         conv, _, _ = conversation_with_participants
         new_user = UserFactory()
 
         broadcast_participant_change(conv, new_user, "added")
 
-        event = mock_send.call_args[0][1]
+        # Now sends to per-user groups for all active participants
+        group_names = [call[0][0] for call in mock_send.call_args_list]
+        assert f"user_{tenant_user.id}" in group_names
+        assert f"user_{landlord_user.id}" in group_names
+
+        # Check payload on the first call
+        event = mock_send.call_args_list[0][0][1]
         assert event["type"] == "participant.added"
         assert event["user_id"] == str(new_user.id)
 
     @patch("apps.messaging.events._send_to_group")
-    def test_sends_removed_event(self, mock_send, conversation_with_participants, tenant_user):
+    def test_sends_removed_event(
+        self, mock_send, conversation_with_participants, tenant_user, landlord_user
+    ):
         conv, _, _ = conversation_with_participants
 
         broadcast_participant_change(conv, tenant_user, "removed")
 
-        event = mock_send.call_args[0][1]
+        # Sends to per-user groups for all active participants
+        group_names = [call[0][0] for call in mock_send.call_args_list]
+        assert all(g.startswith("user_") for g in group_names)
+
+        event = mock_send.call_args_list[0][0][1]
         assert event["type"] == "participant.removed"
 
 
@@ -197,19 +215,33 @@ class TestBroadcastDelegationChange:
 @pytest.mark.django_db
 class TestBroadcastTyping:
     @patch("apps.messaging.events._send_to_group")
-    def test_sends_started(self, mock_send, conversation_with_participants, tenant_user):
+    def test_sends_started(
+        self, mock_send, conversation_with_participants, tenant_user, landlord_user
+    ):
         conv, _, _ = conversation_with_participants
 
         broadcast_typing(conv, tenant_user, started=True)
 
-        event = mock_send.call_args[0][1]
+        # Sends to per-user groups, excluding the sender
+        group_names = [call[0][0] for call in mock_send.call_args_list]
+        assert f"user_{landlord_user.id}" in group_names
+        assert f"user_{tenant_user.id}" not in group_names
+
+        event = mock_send.call_args_list[0][0][1]
         assert event["type"] == "typing.started"
 
     @patch("apps.messaging.events._send_to_group")
-    def test_sends_stopped(self, mock_send, conversation_with_participants, tenant_user):
+    def test_sends_stopped(
+        self, mock_send, conversation_with_participants, tenant_user, landlord_user
+    ):
         conv, _, _ = conversation_with_participants
 
         broadcast_typing(conv, tenant_user, started=False)
 
-        event = mock_send.call_args[0][1]
+        # Sends to per-user groups, excluding the sender
+        group_names = [call[0][0] for call in mock_send.call_args_list]
+        assert f"user_{landlord_user.id}" in group_names
+        assert f"user_{tenant_user.id}" not in group_names
+
+        event = mock_send.call_args_list[0][0][1]
         assert event["type"] == "typing.stopped"

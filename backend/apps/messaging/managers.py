@@ -7,7 +7,7 @@ from django.db import models
 if TYPE_CHECKING:
     from apps.users.models import User
 
-    from .models import Conversation, Message  # noqa: F401
+    from .models import Conversation, ConversationParticipant, Message  # noqa: F401
 
 
 class MessageQuerySet(models.QuerySet["Message"]):
@@ -45,6 +45,22 @@ class MessageQuerySet(models.QuerySet["Message"]):
 
         return qs
 
+    def visible_to_with_participant(
+        self,
+        conversation: Conversation,
+        participant: ConversationParticipant,
+    ) -> MessageQuerySet:
+        """Filter messages visible to a user whose participant record is already known.
+
+        Avoids the extra ConversationParticipant query that visible_to() would fire.
+        """
+        from .models import ParticipantSide
+
+        qs = self.filter(conversation=conversation)
+        if participant.side == ParticipantSide.TENANT_SIDE:
+            qs = qs.exclude(is_internal=True)
+        return qs
+
 
 class MessageManager(models.Manager["Message"]):
     def get_queryset(self) -> MessageQuerySet:
@@ -52,3 +68,10 @@ class MessageManager(models.Manager["Message"]):
 
     def visible_to(self, user: User, conversation: Conversation | None = None) -> MessageQuerySet:
         return self.get_queryset().visible_to(user, conversation)
+
+    def visible_to_with_participant(
+        self,
+        conversation: Conversation,
+        participant: ConversationParticipant,
+    ) -> MessageQuerySet:
+        return self.get_queryset().visible_to_with_participant(conversation, participant)

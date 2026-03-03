@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useCallback, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as api from "@/lib/api";
 import { useMessagingStore } from "@/stores/messaging";
 import { useAuth } from "@/lib/auth";
 import type { ParticipantRole, ParticipantSide } from "@/types/messaging";
 import { getTypeLabelNO, getStatusLabelNO, cn } from "@/lib/utils";
 import { queryKeys } from "@/lib/queryKeys";
-import MessageBubble from "./MessageBubble";
+import MessageList from "./MessageList";
 import ComposeBox from "./ComposeBox";
 import ParticipantList from "./ParticipantList";
 import TypingIndicator from "./TypingIndicator";
@@ -20,15 +20,12 @@ interface Props {
 }
 
 export default function ConversationDetail({ conversationId }: Props) {
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const { setMessages, messages, prependMessages, setActiveConversation } =
-    useMessagingStore();
+  const setMessages = useMessagingStore((s) => s.setMessages);
+  const setActiveConversation = useMessagingStore((s) => s.setActiveConversation);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [loadingOlder, setLoadingOlder] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   // Set active conversation and clear stale messages
   useEffect(() => {
@@ -57,85 +54,10 @@ export default function ConversationDetail({ conversationId }: Props) {
     }
   }, [messagesData, setMessages]);
 
-  // Load older messages via cursor pagination
-  const loadOlderMessages = useCallback(async () => {
-    if (!nextCursor || loadingOlder) return;
-    setLoadingOlder(true);
-    const container = messagesContainerRef.current;
-    const prevScrollHeight = container?.scrollHeight || 0;
-    try {
-      const older = await api.getMessages(conversationId, nextCursor);
-      prependMessages(older.results);
-      setNextCursor(older.next);
-      // Preserve scroll position after prepending
-      requestAnimationFrame(() => {
-        if (container) {
-          container.scrollTop = container.scrollHeight - prevScrollHeight;
-        }
-      });
-    } finally {
-      setLoadingOlder(false);
-    }
-  }, [nextCursor, loadingOlder, conversationId, prependMessages]);
-
   // Determine current user's side from participants
   const userSide = conversation?.participants.find(
     (p) => p.user.id === user?.id
   )?.side;
-
-  // Mark as read
-  const markReadMutation = useMutation({
-    mutationFn: (lastMessageId: string) =>
-      api.markAsRead(conversationId, lastMessageId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
-    },
-  });
-
-  // Stable ref to avoid markReadMutation identity changes triggering re-runs
-  const markReadRef = useRef(markReadMutation);
-  markReadRef.current = markReadMutation;
-
-  // Debounced mark-as-read ref
-  const markReadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const messagesRef = useRef(messages);
-  messagesRef.current = messages;
-
-  // Auto-scroll when new messages arrive
-  useEffect(() => {
-    if (messages.length > 0) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [messages.length]);
-
-  // IntersectionObserver: mark as read only when bottom sentinel is visible
-  useEffect(() => {
-    const sentinel = messagesEndRef.current;
-    if (!sentinel) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && messagesRef.current.length > 0) {
-          const lastMsg = messagesRef.current[messagesRef.current.length - 1];
-          if (lastMsg.conversation === conversationId && !lastMsg._status) {
-            // Debounce: only mark read after 500ms of stability
-            if (markReadTimeoutRef.current)
-              clearTimeout(markReadTimeoutRef.current);
-            markReadTimeoutRef.current = setTimeout(() => {
-              markReadRef.current.mutate(lastMsg.id);
-            }, 500);
-          }
-        }
-      },
-      { threshold: 0.5 }
-    );
-
-    observer.observe(sentinel);
-    return () => {
-      observer.disconnect();
-      if (markReadTimeoutRef.current) clearTimeout(markReadTimeoutRef.current);
-    };
-  }, [conversationId]);
 
   // Remove participant handler
   const handleRemoveParticipant = useCallback(
@@ -245,46 +167,12 @@ export default function ConversationDetail({ conversationId }: Props) {
         </div>
       </div>
 
-      {/* Messages */}
-      <div
-        ref={messagesContainerRef}
-        role="log"
-        aria-live="polite"
-        aria-label="Meldinger"
-        className="flex-1 overflow-y-auto bg-cream scrollbar-thin py-4"
-      >
-        {messagesLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Spinner />
-          </div>
-        ) : messages.length === 0 ? (
-          <p className="py-8 text-center text-sm text-gray-400">
-            Ingen meldinger ennå. Start samtalen!
-          </p>
-        ) : (
-          <>
-            {nextCursor && (
-              <div className="flex justify-center py-2">
-                <button
-                  onClick={loadOlderMessages}
-                  disabled={loadingOlder}
-                  className="text-xs text-primary hover:text-primary-dark disabled:text-gray-400"
-                >
-                  {loadingOlder ? "Laster..." : "Last eldre meldinger"}
-                </button>
-              </div>
-            )}
-            {messages.map((msg) => (
-              <MessageBubble
-                key={msg.id}
-                message={msg}
-                isOwn={msg.sender.id === user?.id}
-              />
-            ))}
-          </>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
+      {/* Messages — extracted to isolate re-renders from store updates */}
+      <MessageList
+        conversationId={conversationId}
+        messagesLoading={messagesLoading}
+        initialNextCursor={nextCursor}
+      />
 
       {/* Typing indicator */}
       <TypingIndicator conversationId={conversationId} />

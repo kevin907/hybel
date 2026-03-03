@@ -16,6 +16,18 @@ import type {
 
 const API_BASE = "/api";
 
+/**
+ * Extract the path (without API_BASE prefix) + query string from a full cursor URL
+ * returned by DRF cursor pagination, so it can be passed to request().
+ */
+function extractCursorPath(cursorUrl: string): string {
+  const url = new URL(cursorUrl, window.location.origin);
+  const path = url.pathname.startsWith(API_BASE)
+    ? url.pathname.slice(API_BASE.length)
+    : url.pathname;
+  return `${path}${url.search}`;
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -67,9 +79,12 @@ async function request<T>(
 // ──────────────────────────────────────────────────
 
 export function getConversations(
-  page = 1
-): Promise<PaginatedResponse<ConversationListItem>> {
-  return request(`/conversations/?page=${page}`);
+  cursorUrl?: string
+): Promise<CursorPaginatedResponse<ConversationListItem>> {
+  if (cursorUrl) {
+    return request(extractCursorPath(cursorUrl));
+  }
+  return request("/conversations/");
 }
 
 export function getConversation(id: string): Promise<ConversationDetail> {
@@ -104,9 +119,7 @@ export function getMessages(
   cursorUrl?: string
 ): Promise<CursorPaginatedResponse<Message>> {
   if (cursorUrl) {
-    // cursorUrl is a full URL from the `next` field — extract the path + query
-    const url = new URL(cursorUrl, window.location.origin);
-    return request(`${url.pathname}${url.search}`);
+    return request(extractCursorPath(cursorUrl));
   }
   return request(`/conversations/${conversationId}/messages/`);
 }

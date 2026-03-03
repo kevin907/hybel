@@ -1,13 +1,11 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect, type KeyboardEvent } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useState, useRef, useCallback, useEffect, memo, type KeyboardEvent } from "react";
 import * as api from "@/lib/api";
 import { useMessagingStore } from "@/stores/messaging";
 import { useAuth } from "@/lib/auth";
 import { getWebSocketManager } from "@/lib/websocket";
 import { cn } from "@/lib/utils";
-import { queryKeys } from "@/lib/queryKeys";
 import type { Attachment } from "@/types/messaging";
 import Icon from "@/components/ui/Icon";
 
@@ -16,13 +14,12 @@ interface Props {
   userSide?: "tenant_side" | "landlord_side";
 }
 
-export default function ComposeBox({ conversationId, userSide }: Props) {
+function ComposeBox({ conversationId, userSide }: Props) {
   const [content, setContent] = useState("");
   const [isInternal, setIsInternal] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const queryClient = useQueryClient();
   const { user } = useAuth();
   const addMessage = useMessagingStore((s) => s.addMessage);
   const replaceMessage = useMessagingStore((s) => s.replaceMessage);
@@ -115,19 +112,17 @@ export default function ComposeBox({ conversationId, userSide }: Props) {
         );
       }
 
-      // 4. Replace optimistic message with server response + attachments
+      // 4. Replace optimistic message with server response + attachments.
+      //    WS event handles conversation list bump (bumpConversationInCache)
+      //    and message store updates (addMessage) — no need to invalidate here.
       replaceMessage(tempId, { ...msg, attachments: uploadedAttachments });
-      queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.messages(conversationId),
-      });
     } catch {
       // 5. Mark the optimistic message as failed
       markMessageFailed(tempId);
     } finally {
       pendingRef.current = false;
     }
-  }, [content, files, isInternal, conversationId, user, emitTypingStop, addMessage, replaceMessage, markMessageFailed, queryClient]);
+  }, [content, files, isInternal, conversationId, user, emitTypingStop, addMessage, replaceMessage, markMessageFailed]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -265,3 +260,5 @@ export default function ComposeBox({ conversationId, userSide }: Props) {
     </div>
   );
 }
+
+export default memo(ComposeBox);

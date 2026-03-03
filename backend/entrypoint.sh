@@ -18,9 +18,6 @@ psycopg2.connect(
 done
 echo "PostgreSQL is ready"
 
-echo "Running migrations..."
-python manage.py migrate --noinput
-
 echo "Ensuring PostgreSQL extensions..."
 python manage.py shell -c "
 from django.db import connection

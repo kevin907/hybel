@@ -27,6 +27,7 @@ class ConversationAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
 @admin.register(ConversationParticipant)
 class ConversationParticipantAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     list_display = ["conversation", "user", "role", "side", "is_active"]
+    list_select_related = ["conversation", "user"]
     list_filter = ["role", "side", "is_active"]
 
 
@@ -40,6 +41,7 @@ class MessageAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         "is_internal",
         "created_at",
     ]
+    list_select_related = ["conversation", "sender"]
     list_filter = ["message_type", "is_internal"]
 
 
@@ -51,6 +53,7 @@ class AttachmentAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
 @admin.register(ReadState)
 class ReadStateAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     list_display = ["conversation", "user", "unread_count", "last_read_at"]
+    list_select_related = ["conversation", "user"]
 
 
 @admin.register(Delegation)
@@ -62,4 +65,5 @@ class DelegationAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         "is_active",
         "assigned_at",
     ]
+    list_select_related = ["conversation", "assigned_to", "assigned_by"]
     list_filter = ["is_active"]

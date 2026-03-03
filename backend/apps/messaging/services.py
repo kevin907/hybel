@@ -87,8 +87,11 @@ def send_message(
             conversation=conversation,
         ).exclude(user=sender)
 
+        # Pre-compute landlord IDs so the same list is reused for both
+        # ReadState filtering and event broadcasting (avoids duplicate query).
+        landlord_user_ids: list[Any] | None = None
         if is_internal:
-            internal_user_ids = (
+            landlord_user_ids = list(
                 ConversationParticipant.objects.filter(
                     conversation=conversation,
                     side=ParticipantSide.LANDLORD_SIDE,
@@ -97,11 +100,14 @@ def send_message(
                 .exclude(user=sender)
                 .values_list("user_id", flat=True)
             )
-            read_state_qs = read_state_qs.filter(user_id__in=internal_user_ids)
+            read_state_qs = read_state_qs.filter(user_id__in=landlord_user_ids)
 
         read_state_qs.update(unread_count=F("unread_count") + 1)
 
-        transaction.on_commit(lambda: events.broadcast_new_message(msg))
+        broadcast_ids = landlord_user_ids
+        transaction.on_commit(
+            lambda: events.broadcast_new_message(msg, landlord_user_ids=broadcast_ids)
+        )
 
         return msg
 
@@ -176,14 +182,28 @@ def mark_as_read(
             conversation=conversation,
             user=user,
         )
-        read_state.last_read_at = message.created_at
-        read_state.last_read_message = message
-        read_state.unread_count = 0
-        read_state.save()
+        # Atomic UPDATE avoids race with concurrent send_message F("unread_count") + 1
+        ReadState.objects.filter(id=read_state.id).update(
+            last_read_at=message.created_at,
+            last_read_message=message,
+            unread_count=0,
+        )
+        read_state.refresh_from_db()
 
         transaction.on_commit(lambda: events.broadcast_read_update(user, conversation, 0))
 
     return read_state
+
+
+def _get_landlord_user_ids(conversation: Conversation) -> list[Any]:
+    """Pre-compute landlord-side user IDs for event broadcasting."""
+    return list(
+        ConversationParticipant.objects.filter(
+            conversation=conversation,
+            side=ParticipantSide.LANDLORD_SIDE,
+            is_active=True,
+        ).values_list("user_id", flat=True)
+    )
 
 
 def delegate_conversation(
@@ -211,8 +231,11 @@ def delegate_conversation(
             f"Samtalen ble delegert til {assigned_to.first_name} {assigned_to.last_name}.",
         )
 
+        landlord_ids = _get_landlord_user_ids(conversation)
         transaction.on_commit(
-            lambda: events.broadcast_delegation_change(conversation, delegation, "assigned")
+            lambda: events.broadcast_delegation_change(
+                conversation, delegation, "assigned", landlord_user_ids=landlord_ids
+            )
         )
 
         return delegation
@@ -230,8 +253,11 @@ def remove_delegation(
 
         _create_system_message(conversation, removed_by, "Delegering ble fjernet.")
 
+        landlord_ids = _get_landlord_user_ids(conversation)
         transaction.on_commit(
-            lambda: events.broadcast_delegation_change(conversation, None, "removed")
+            lambda: events.broadcast_delegation_change(
+                conversation, None, "removed", landlord_user_ids=landlord_ids
+            )
         )
 
 
@@ -242,13 +268,16 @@ def search_messages(
 ) -> QuerySet[Message]:
     filters = filters or {}
 
-    user_conv_ids = ConversationParticipant.objects.filter(user=user, is_active=True).values_list(
+    # Single base queryset for participant lookups (avoids duplicate queries)
+    participant_qs = ConversationParticipant.objects.filter(user=user, is_active=True)
+    user_conv_ids = participant_qs.values_list("conversation_id", flat=True)
+    tenant_conv_ids = participant_qs.filter(side=ParticipantSide.TENANT_SIDE).values_list(
         "conversation_id", flat=True
     )
 
     qs = (
         Message.objects.filter(conversation_id__in=user_conv_ids)
-        .visible_to(user)
+        .exclude(conversation_id__in=tenant_conv_ids, is_internal=True)
         .select_related("sender", "conversation")
     )
 
@@ -282,4 +311,4 @@ def search_messages(
         )
         qs = qs.filter(conversation_id__in=unread_conv_ids)
 
-    return qs  # type: ignore[no-any-return]
+    return qs

@@ -23,6 +23,21 @@ services:
       retries: 5
     restart: always
 
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: prod
+    command: python manage.py migrate --noinput
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.prod
+      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
   backend:
     build:
       context: ./backend
@@ -30,7 +45,7 @@ services:
       target: prod
     command: >
       sh -c "./entrypoint.sh &&
-             daphne -b 0.0.0.0 -p 8000 config.asgi:application"
+             uvicorn config.asgi:application --host 0.0.0.0 --port 8000 --workers 4 --loop uvloop --max-requests 10000 --max-requests-jitter 1000"
     volumes:
       - backend_media:/app/media
       - static_files:/app/static
@@ -46,6 +61,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: always
 
   frontend:
