@@ -45,7 +45,7 @@ services:
       target: prod
     command: >
       sh -c "./entrypoint.sh &&
-             uvicorn config.asgi:application --host 0.0.0.0 --port 8000 --workers 4 --loop uvloop --max-requests 10000 --max-requests-jitter 1000"
+             uvicorn config.asgi:application --host 0.0.0.0 --port 8000 --workers 4 --loop uvloop --limit-max-requests 10000 --limit-max-requests-jitter 1000"
     volumes:
       - backend_media:/app/media
       - static_files:/app/static
@@ -56,6 +56,7 @@ services:
       - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
       - DEBUG=false
       - ALLOWED_HOSTS=${ALLOWED_HOSTS}
+      - SECURE_SSL_REDIRECT=${SECURE_SSL_REDIRECT:-true}
     depends_on:
       db:
         condition: service_healthy
