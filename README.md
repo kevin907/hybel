@@ -113,16 +113,35 @@ The `side` field on `ConversationParticipant` (`tenant_side` | `landlord_side`) 
 ### API Endpoints
 
 ```
+# Conversations
 GET    /api/conversations/                              # Inbox list
 POST   /api/conversations/                              # Create conversation
 GET    /api/conversations/{id}/                         # Detail + participants
 PATCH  /api/conversations/{id}/                         # Update status/subject
+
+# Messages
 GET    /api/conversations/{id}/messages/                # Messages (filtered by side)
 POST   /api/conversations/{id}/messages/                # Send message
+GET    /api/conversations/{id}/messages/since/          # Messages since timestamp
+
+# Attachments
+POST   /api/conversations/{id}/messages/{msg_id}/attachments/  # Upload attachment
+GET    /api/attachments/{id}/download/                         # Download attachment
+
+# Actions
 POST   /api/conversations/{id}/add-participant/         # Add participant
 POST   /api/conversations/{id}/delegate/                # Delegate
 POST   /api/conversations/{id}/mark-read/               # Mark as read
+
+# Search
 GET    /api/conversations/search/?q=...&property=...    # Full-text search
+
+# Auth
+GET    /api/auth/csrf/                                  # Get CSRF token
+POST   /api/auth/login/                                 # Login
+POST   /api/auth/logout/                                # Logout
+GET    /api/auth/me/                                    # Current user
+GET    /api/auth/users/search/                          # Search users
 ```
 
 ### Frontend Pages
@@ -137,7 +156,7 @@ GET    /api/conversations/search/?q=...&property=...    # Full-text search
 
 Connect to `ws://localhost:8000/ws/inbox/` for real-time updates:
 
-`message.new`, `read.updated`, `participant.added`, `participant.removed`, `delegation.assigned`, `typing.started`, `typing.stopped`, `connection.sync`
+`connection.sync`, `message.new`, `read.updated`, `participant.added`, `participant.removed`, `delegation.assigned`, `delegation.removed`, `typing.started`, `typing.stopped`, `ping`/`pong` (keep-alive)
 
 ## Project Structure
 
@@ -173,10 +192,15 @@ hybel/
 │           ├── models.py           # Conversation, Message, Participant, etc.
 │           ├── serializers.py
 │           ├── views.py
+│           ├── urls.py             # REST URL routing
 │           ├── permissions.py      # Access control (side-based visibility)
 │           ├── services.py         # Business logic
 │           ├── consumers.py        # WebSocket consumers
+│           ├── events.py           # WebSocket event broadcasting
 │           ├── managers.py         # Custom QuerySet managers
+│           ├── signals.py          # Post-save hooks (read state, search vectors)
+│           ├── routing.py          # WebSocket URL routing
+│           ├── admin.py            # Django admin configuration
 │           └── tests/              # Comprehensive test suite
 │
 ├── frontend/
@@ -186,14 +210,20 @@ hybel/
 │       ├── app/
 │       │   └── meldinger/          # Messaging routes (Next.js App Router)
 │       ├── components/
-│       │   ├── messaging/          # InboxLayout, ConversationList, MessageBubble, etc.
-│       │   └── ui/                 # Avatar, Spinner, Icon
+│       │   ├── messaging/          # InboxLayout, ConversationList, ConversationItem,
+│       │   │                       # ConversationDetail, MessageList, MessageBubble,
+│       │   │                       # ComposeBox, Sidebar, ParticipantList,
+│       │   │                       # SearchBar, SearchFilters, SearchResults,
+│       │   │                       # ConnectionStatus, TypingIndicator
+│       │   └── ui/                 # Avatar, Spinner, Icon, UserAutocomplete
 │       ├── hooks/                  # useWebSocket, useDebounce
 │       ├── lib/
 │       │   ├── api.ts              # REST client
 │       │   ├── websocket.ts        # WebSocket manager (reconnection, offline queue)
 │       │   ├── auth.tsx            # Auth context
-│       │   └── providers.tsx       # React Query + Auth providers
+│       │   ├── providers.tsx       # React Query + Auth providers
+│       │   ├── queryKeys.ts        # TanStack React Query key factory
+│       │   └── utils.ts            # Utility functions
 │       ├── stores/
 │       │   └── messaging.ts        # Zustand store
 │       └── types/
