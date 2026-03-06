@@ -55,12 +55,10 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      target: dev
-    command: npm run dev
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
+      target: prod
+      args:
+        - NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL:-ws://localhost:8000/ws}
+    command: node server.js
     ports:
       - "3000:3000"
     environment:
