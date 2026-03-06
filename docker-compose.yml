@@ -58,6 +58,7 @@ services:
       target: prod
       args:
         - NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL:-ws://localhost:8000/ws}
+        - BACKEND_URL=http://backend:8000
     command: node server.js
     ports:
       - "3000:3000"
